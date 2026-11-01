@@ -99,6 +99,11 @@ def main():
             print(describe(eng))
 
         cur = eng.players[0]["x"]
+        # 到了最后一个路标就进入 Boss 战，此时"不推进"是正常的
+        if wp >= len(WAYPOINTS) - 1:
+            stuck_t = 0.0
+            best_x = cur
+            continue
         if cur > best_x + TILE * 0.5:
             best_x = cur
             stuck_t = 0.0

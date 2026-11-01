@@ -3391,7 +3391,10 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 crossing = "right"
             elif need_left:
                 crossing = "left"
+        # 只有"同一侧"的地面怪才算危险。深坑对岸的怪根本走不过来，
+        # 却被算进 danger_near，AI 就一直不敢上刀刺阶板，永远停在坑口。
         danger_near = any(m.kind == "ground" and abs(m.x - px) < 320
+                          and (m.x < pit_l) == (px < pit_l)
                           for m in eng.monsters)
         if crossing is not None and not danger_near:
             # 已骑在刀刺阶板上（被上下携带，随板沉浮）
@@ -3434,7 +3437,10 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 return inp
 
         # ---------- 岩浆坑跨越（借助移动阶板）----------
-        if px < LAVA_RIGHT_PX - 20 and fx > 78 * TILE:
+        # 必须"人已经在岩浆附近"才接管。原来只判"目标在 78 列以东"，
+        # 于是 AI 在 40 多列的 A 断崖底下就会进这个分支，被一句
+        # "px < 62 格就按右"钉住，既不跳也不绕，卡在崖底出不来。
+        if 56 * TILE < px < LAVA_RIGHT_PX - 20 and fx > 78 * TILE:
             if me["on_ground"] and me["y"] < 19 * TILE - 20:
                 # 骑板中被携带：板近右岸时向右走出
                 for plate in eng._m_plates.values():
@@ -3442,7 +3448,8 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                         if plate["x"] + M_PAD_W >= 80 * TILE - 20:
                             inp["right"] = True
                         return inp
-                return inp
+                # 注意：不在这里 return。脚下没有板（刚从板上掉下来 / 板已经
+                # 飘走）时必须继续往下走正常逻辑，否则 AI 会一动不动地掉进岩浆。
             if px < 62 * TILE:
                 inp["right"] = True
                 return inp
@@ -3637,13 +3644,26 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 # 跳板还在场就别再往起点跑：队友已经过崖了，盾卫还一趟趟跑回
                 # 4 列踩机关，来回 30 格，整队被拖住。
                 _pad_alive = any(pp[5] == cfg["id"] for pp in eng.pads)
-                need = ((1040 < fx < 1420) or (1040 < px < 1420)) and not _pad_alive
-                # 只判"我在断崖左边"而不是判脚底高度：盾卫跳在空中时
-                # abs(py-地面) 会短暂不成立，条件一帧真一帧假，它就在崖口
-                # 左右横跳、永远走不到机关上。
+                # 只看"队友是否卡在断崖这边"。原来还 or 了自己的坐标，
+                # 而自己就站在 1040 这条判定边界上 —— 走一步条件就翻转，
+                # 一帧左一帧右，原地抖 10 秒一步不挪。
+                need = (1040 < fx < 1420) and not _pad_alive
                 if need and px < 50 * TILE:
                     advance(pcx, 19 * TILE)
                     return inp
+            # 3.5) 双人闸门补位：队友站了一块板，我去站另一块
+            _duo_x = _duo_plate_fill(eng, me, other)
+            if _duo_x is not None and py > 11 * TILE:
+                if abs(px - _duo_x) < 22:
+                    # 踩板要"钉住"：跳一下、走一步都会把 0.45s 的计时清零
+                    inp["up"] = False
+                    inp["dash"] = False
+                    inp["left"] = False
+                    inp["right"] = False
+                else:
+                    inp["right"] = _duo_x > px
+                    inp["left"] = _duo_x < px
+                return inp
             # 4) 低血且近处有怪 -> 举盾格挡
             if me["hp"] < me["maxhp"] * 0.45 and any(
                     m.kind in ("ground", "boss") and abs(m.x - px) < 150 for m in monsters):
@@ -3674,7 +3694,9 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             if hp > 0 and rx in (54, 55) and ry >= 17:
                 wall_rock = ((rx + 0.5) * TILE, (ry + 0.5) * TILE)
                 break
-        need_cross = fx > 50 * TILE or px > 50 * TILE
+        # 只在"墙还在我前面/身边"时才去轰它。少了 px < 56 格这一条，
+        # 已经过了墙的弓手会掉头走回 46 列去射墙（比如被传送到后面时）。
+        need_cross = (fx > 50 * TILE or px > 50 * TILE) and px < 56 * TILE
         if wall_rock and need_cross:
             if px < 46 * TILE:
                 advance(47 * TILE, py)
@@ -3685,6 +3707,28 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                     inp["left"] = True
                 elif wall_rock[0] > px + 20:
                     inp["right"] = True
+            return inp
+
+        # 双人闸门补位：闸门没开就先站板，比"顺手打两只怪"重要得多。
+        # 放在战斗分支之前 —— 否则附近有蝙蝠时弓手会一直站在闸门前打怪，
+        # 闸门永远不开。
+        _duo_x = _duo_plate_fill(eng, me, other)
+        if _duo_x is not None and py > 11 * TILE:
+            if abs(px - _duo_x) < 22:
+                inp["up"] = False
+                inp["dash"] = False
+                inp["left"] = False
+                inp["right"] = False
+            else:
+                inp["right"] = _duo_x > px
+                inp["left"] = _duo_x < px
+                # 闸门前有一级两格高的台阶，只按方向走会一直贴着台阶。
+                if me["on_ground"]:
+                    _d = 1 if inp["right"] else -1
+                    _c = int((px + _d * (PLAYER_W / 2 + 6)) // TILE)
+                    _r = int((py - PLAYER_H * 0.5) // TILE)
+                    if solid(_c, _r) or solid(_c, _r - 1):
+                        inp["up"] = True
             return inp
 
         # 攻击射程内怪物（保持安全距离）
@@ -3718,6 +3762,14 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 if _has_floor:
                     inp["right"] = dmv > 0
                     inp["left"] = dmv < 0
+            # 边打边走的台阶：战斗分支一旦接管，就完全不看地形了。
+            # 弓手站在 A 断崖底部打蝙蝠时，会一直按右顶着崖壁走，永远出不来。
+            if (inp["right"] or inp["left"]) and me["on_ground"]:
+                _d = 1 if inp["right"] else -1
+                _c = int((px + _d * (PLAYER_W / 2 + 6)) // TILE)
+                _r = int((py - PLAYER_H * 0.5) // TILE)
+                if solid(_c, _r) or solid(_c, _r - 1):
+                    inp["up"] = True
             return inp
 
         # 跟随玩家
@@ -3731,6 +3783,48 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
 
 AI_COMMANDS = ("follow", "guard", "focus")
 AI_CMD_LABEL = {"follow": "跟随", "guard": "守点", "focus": "集火"}
+
+
+def _duo_plate_fill(eng, me, other):
+    """双人闸门的"补位"目标：队友已经站上一块踏板时，返回另一块的 x。
+
+    闸门要求两块踏板同时被踩住 0.45s。以前只有 `guard` 指令会去补位，
+    默认跟随模式下 AI 会直接冲到闸门前顶着墙跳（8 格高的 H 墙跳不过去）。
+    单人局里这个补位同样有用：玩家站一块，AI 自己站另一块。
+    """
+    try:
+        if eng.duo_gate_open:
+            return None
+        cols = [c * TILE + TILE / 2.0 for c in DUO_PLATE_COLS]
+        mate = None
+        for cx in cols:
+            if abs(other["x"] - cx) < DUO_PLATE_RANGE:
+                mate = cx
+                break
+        # 队友已经站好一块 -> 我去另一块。
+        # 只有"已经走到闸门附近"才接管：距离还很远时（比如还在塔底）必须
+        # 交给导航图，否则这里一句"往右走"会让盾卫顶着塔壁原地站着。
+        if mate is not None:
+            # 已经站在另一块板上了 -> 直接返回它，让上层把"站住别动"钉死。
+            # 少了这一条，AI 站上板之后条件就变成"不用去了"，于是掉回跟随逻辑，
+            # 又朝闸门墙走、又起跳、又掉下来 —— 两块板永远凑不齐 0.45 秒。
+            for cx in cols:
+                if cx != mate and abs(me["x"] - cx) < DUO_PLATE_RANGE:
+                    return cx
+            for cx in cols:
+                if cx != mate and abs(me["x"] - cx) > DUO_PLATE_RANGE * 0.8:
+                    if abs(me["x"] - cx) < 300:
+                        return cx
+                    return None
+            return None
+        # 谁都没站上去：两人都走到闸门附近时按左右分工，各站一块。
+        # 不这么写就会互相等 —— 没人先站，补位条件永远不成立，
+        # 两人一起顶着 8 格高的闸门墙原地跳。
+        if min(abs(me["x"] - cx) for cx in cols) < 300:
+            return cols[0] if me["x"] <= other["x"] else cols[1]
+    except Exception:
+        pass
+    return None
 
 
 def _los_clear(eng, x0, y0, x1, y1, step=7.0):
@@ -3809,8 +3903,23 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
                 inp["up"] = True
             elif me.get("jumps") == 1 and abs(dx) < 40:
                 inp["up"] = True          # 二段跳补高度
-        if kind == "vine" and me["on_ground"] and abs(dx) < 34:
-            inp["up"] = True              # 走到藤蔓脚下时起跳抓索
+        if kind == "vine" and me["on_ground"]:
+            # 抓藤：先走到"离自己最近的那个绳头"，到了再按跳抓上去。
+            # 原来用"下一节点"(绳子的另一端)算距离，长藤蔓 dx 有两百多像素，
+            # abs(dx) < 34 永远不成立 —— 于是 AI 在绳头前来回走，上不去。
+            near, nd = None, 1e18
+            for v in eng.vines:
+                for (vx, vy) in ((v[0], v[1]), (v[2], v[3])):
+                    d = abs(vx - me["x"]) + abs(vy - me["y"])
+                    if d < nd:
+                        nd, near = d, (vx, vy)
+            if near is not None:
+                if nd < 36:
+                    inp["up"] = True
+                    inp["left"] = inp["right"] = False
+                else:
+                    inp["right"] = near[0] > me["x"] + 10
+                    inp["left"] = near[0] < me["x"] - 10
         return True
     except Exception:
         return False
@@ -3924,6 +4033,17 @@ def make_ai_input(ai_pid, eng, other_pid, cmd="follow", lead=None):
             near_left = (me["x"] - LAVA_LEFT_PX) < (LAVA_RIGHT_PX - me["x"])
             inp["left"], inp["right"] = near_left, not near_left
             inp["up"] = False
+            # 坑壁比岩浆面高一格：只按方向是爬不出去的，会贴着坑壁站到烧死。
+            # 前方是实心就跳一下。
+            try:
+                _d = -1 if near_left else 1
+                _c = int((me["x"] + _d * (PLAYER_W / 2 + 6)) // TILE)
+                _r = int((me["y"] - PLAYER_H * 0.5) // TILE)
+                if me.get("on_ground") and (eng._solid_at(_c, _r)
+                                            or eng._solid_at(_c, _r - 1)):
+                    inp["up"] = True
+            except Exception:
+                pass
             return inp
     except Exception:
         pass

@@ -656,6 +656,39 @@ def test_ai_traverse():
     inp = core._make_ai_input_raw(1, eng, 0, lead=(4 * T, 19 * T))
     check("挂藤时不会同时按跳（按跳=松手）", not inp.get("up"), str(inp.get("up")))
 
+    # 6) 两个 AI 要能自己把双人闸门打开：闸门要求两块踏板同时被踩 0.45s。
+    #    以前没人会主动站板（只有 guard 指令会），两个 AI 一起顶着 8 格高的
+    #    闸门墙原地跳，永远过不去。
+    eng = core.GameEngine()
+    eng.reset()
+    eng.ai_pid = None
+    eng.players[0]["x"] = 112 * T
+    eng.players[0]["y"] = 19 * T
+    eng.players[1]["x"] = 110 * T
+    eng.players[1]["y"] = 19 * T
+    for _ in range(240):
+        eng.step({0: core.make_ai_input(0, eng, 1),
+                  1: core.make_ai_input(1, eng, 0)}, core.TICK_DT)
+        if eng.duo_gate_open:
+            break
+    check("两个 AI 能自己站满双人机关开门", eng.duo_gate_open,
+          "弓 x=%.1f 盾 x=%.1f" % (eng.players[0]["x"] / T, eng.players[1]["x"] / T))
+
+    # 7) 目标在岩浆以东时，AI 站在 A 断崖底下不能被"过岩浆"分支钉住。
+    #    旧条件只判"目标在 78 列以东"，于是 AI 在 40 多列就被一句
+    #    "px < 62 格就按右"按住，既不跳也不绕，卡在崖底出不来。
+    eng = core.GameEngine()
+    eng.ai_pid = None
+    eng.players[0]["x"] = 43 * T + 16
+    eng.players[0]["y"] = 22 * T
+    eng.players[1]["x"] = 30 * T
+    eng.players[1]["y"] = 19 * T
+    for _ in range(240):
+        eng.step({0: core.make_ai_input(0, eng, 1, lead=(94 * T + 16, 19 * T)),
+                  1: core.make_ai_input(1, eng, 0)}, core.TICK_DT)
+    check("断崖底不会被过岩浆分支钉住", eng.players[0]["x"] > 50 * T,
+          "弓 x=%.1f" % (eng.players[0]["x"] / T))
+
 
 # ---------------------------------------------------------------- 网络
 def test_net():
