@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 构建产物（PyInstaller）
+build/
+build2/
+dist/
+*.spec
+
+# 运行期生成
+*.log
+core.log
+records.json
+settings.json
+
+# 测试截图（可用 test_shots.py 重新生成）
+shots/
+
+# 编辑器
+.vscode/
+.idea/

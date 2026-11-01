@@ -1,0 +1,10 @@
+﻿=== 鎵弿姣忓垪锛堝湴闈笂鏂硅惤浣嶏級锛屽乏鍙冲悇缁欎竴娆¤緭鍏?===
+鍒?  鍗′綇(鍙? 鍗′綇(宸? 绌垮湴  鏈珁   琛€閲?
+  86   False  False  False   809     0  <-- 寮傚父
+  87   False  False  False   809     0  <-- 寮傚父
+  88   False  False  False   809     0  <-- 寮傚父
+  89   False  False  False   809     0  <-- 寮傚父
+  94   False  False  False   608     0  <-- 寮傚父
+  95   False  False  False   608     0  <-- 寮傚父
+
+寮傚父鐐? [(86, False, False, 809, 0), (87, False, False, 809, 0), (88, False, False, 809, 0), (89, False, False, 809, 0), (94, False, False, 608, 0), (95, False, False, 608, 0)]

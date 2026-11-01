@@ -1,0 +1,7 @@
+﻿鍒?  鍙崇Щ  宸︾Щ  鍩嬪湴  浣嶇Щ  娣遍檷  琛€閲? 鏈珁
+  87  False False False  144  117   -34     0   574  <--
+  88  False False False  112  117   -34     0   574  <--
+  95  True  False False    3  112     0     0   608  <--
+
+鍚堣寮傚父鍒? 3
+鏄庣粏: [(87, False, False, False, 144, 117, -34, 0, 574), (88, False, False, False, 112, 117, -34, 0, 574), (95, True, False, False, 3, 112, 0, 0, 608)]

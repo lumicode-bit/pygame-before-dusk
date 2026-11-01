@@ -1,0 +1,6 @@
+test_move.py rc=0
+test_pit.py rc=0
+test_gameplay.py rc=0
+test_flow.py rc=0
+test_audit.py rc=0
+test_fuzz.py rc=0

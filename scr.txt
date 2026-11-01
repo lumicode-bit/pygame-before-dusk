@@ -1,0 +1,5 @@
+﻿pygame 2.6.1 (SDL 2.28.4, Python 3.13.14)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+F3 land_y = 480.0  y0 = 160
+state = open  open_t = 0.12
+state = fall  y = 185

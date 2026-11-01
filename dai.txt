@@ -1,0 +1,7 @@
+﻿=== AI锛堢浘鍗級浠庡彴闃惰窡鐫€鐜╁涓婄キ鍧?===
+ 鐜╁x=4544 -> AI x=4549 y=480 on_ground=True 鍩嬪湴=False 鍗′綇甯?241 hp=130
+ 鐜╁x=4672 -> AI x=4454 y=411 on_ground=False 鍩嬪湴=False 鍗′綇甯?0 hp=56
+ 鐜╁x=4800 -> AI x=4807 y=480 on_ground=True 鍩嬪湴=False 鍗′綇甯?241 hp=112
+
+=== AI 浠庣キ鍧涘線宸﹀洖鍙伴樁锛堜笅鍧★級===
+ AI x=4262 y=608 on_ground=True hp=91

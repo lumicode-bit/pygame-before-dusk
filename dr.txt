@@ -1,0 +1,9 @@
+﻿trial5 f1690: x=4850.99 y=480.00 vy=0.0 on_ground=True vine=-1 solid=False hp=3
+       涓婃柟鏍煎瓙: [(8, False), (9, False), (10, False), (11, False), (12, False), (13, False), (14, False), (15, True)]
+       鑴氭牸: 15 solid= True
+trial5 f1697: x=4850.99 y=426.67 vy=-460.0 on_ground=False vine=-1 solid=False hp=3
+       涓婃柟鏍煎瓙: [(8, False), (9, False), (10, False), (11, False), (12, False), (13, False), (14, False), (15, True)]
+       鑴氭牸: 13 solid= False
+trial5 f1700: x=4850.99 y=395.33 vy=-240.0 on_ground=False vine=-1 solid=False hp=3
+       涓婃柟鏍煎瓙: [(8, False), (9, False), (10, False), (11, False), (12, False), (13, False), (14, False), (15, True)]
+       鑴氭牸: 12 solid= False

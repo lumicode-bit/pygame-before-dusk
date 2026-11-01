@@ -1,0 +1,28 @@
+﻿f0000 寮?x=116(3.6col) y=608 hp=80 vine=-1 | 鐩?x=324 y=608 hp=130 vine=-1 | 鎬?5 娉?1 闂?False kills=0
+f0300 寮?x=616(19.3col) y=608 hp=48 vine=-1 | 鐩?x=617 y=608 hp=110 vine=-1 | 鎬?6 娉?1 闂?False kills=4
+f0600 寮?x=616(19.3col) y=608 hp=48 vine=-1 | 鐩?x=617 y=608 hp=110 vine=-1 | 鎬?6 娉?1 闂?False kills=4
+f0900 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?5 娉?1 闂?False kills=5
+f1200 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f1500 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f1800 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f2100 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f2400 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f2700 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f3000 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f3300 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f3600 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+f3900 寮?x=662(20.7col) y=608 hp=48 vine=-1 | 鐩?x=660 y=608 hp=110 vine=-1 | 鎬?4 娉?1 闂?False kills=6
+
+=== 鏈€鍚?3 绉掗€愬抚锛堝紦锛?==
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+ x=662 y=608 vy=0.0 on_ground=True vine=-1 inp L=False R=False U=False
+
+鎬墿鍒楄〃: [('ground', 96.8, 480, 3), ('ground', 96.9, 480, 3), ('ground', 99.5, 224, 6.6), ('ground', 104.4, 352, 6.6)]
+wave1_spawned=True _wave1_timer=-0.0

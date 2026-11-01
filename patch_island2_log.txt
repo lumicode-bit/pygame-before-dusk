@@ -1,0 +1,1 @@
+depth_color | shape | side_rocks

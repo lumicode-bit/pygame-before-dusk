@@ -1,0 +1,20 @@
+﻿
+col 87 钀藉湴: x=2800 y=608 hp=80 on_ground=True
+  f00 x=2808 y=608 hp=80 vine=-1 events=[]
+  f04 x=2842 y=608 hp=80 vine=-1 events=[]
+  f08 x=2875 y=608 hp=80 vine=-1 events=[]
+  f12 x=2908 y=615 hp=80 vine=-1 events=[]
+  f13 x=2944 y=574 hp=0 vine=-1 events=['impale']
+
+col 88 钀藉湴: x=2832 y=608 hp=80 on_ground=True
+  f00 x=2840 y=608 hp=80 vine=-1 events=[]
+  f04 x=2874 y=608 hp=80 vine=-1 events=[]
+  f08 x=2907 y=615 hp=80 vine=-1 events=[]
+  f09 x=2944 y=540 hp=0 vine=-1 events=['impale']
+  f12 x=2944 y=565 hp=0 vine=-1 events=[]
+
+col 95 钀藉湴: x=3056 y=608 hp=80 on_ground=True
+  f00 x=3059 y=608 hp=80 vine=-1 events=[]
+  f04 x=3059 y=608 hp=80 vine=-1 events=[]
+  f08 x=3059 y=608 hp=80 vine=-1 events=[]
+  f12 x=3059 y=608 hp=80 vine=-1 events=[]

@@ -1,0 +1,8 @@
+﻿鐩惧崼 x=144.00 y=608.00 on_ground=True
+鐩惧崼鐭╁舰 y: 564.00 ~ 608.00
+鏈哄叧鐭╁舰 y: 608 ~ 640
+鏈哄叧 active: [True] pads: 5
+
+鍙屼汉闂搁棬: hold=0.00 open=True 闂ㄦ牸=' '
+
+鎶珮 2px: y=640.00 鏈哄叧 active=[True] pads=5

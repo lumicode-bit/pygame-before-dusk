@@ -1,0 +1,6 @@
+﻿pygame 2.6.1 (SDL 2.28.4, Python 3.13.14)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+cam.px,py = (303, 277)
+fly x=739 y=474 state=walk  dy=134 瑙嗗彛=(436,197)
+fly x=675 y=374 state=walk  dy=234 瑙嗗彛=(372,97)
+fly x=740 y=467 state=hover dy=141 瑙嗗彛=(437,190)

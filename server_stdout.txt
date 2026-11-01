@@ -1,0 +1,4 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.13.7)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+[启动] 暮色之前 · 双人联机合作
+[启动] 像素素材已代码内置，无外部文件依赖
