@@ -124,7 +124,8 @@ def load_settings():
             s["skins"] = [0, 0]
         else:
             try:
-                s["skins"] = [int(_sk[0]) % 3, int(_sk[1]) % 3]
+                # 只做非负夹紧，上限交给 App（它知道每个职业有几套外观）
+                s["skins"] = [max(0, int(_sk[0])), max(0, int(_sk[1]))]
             except Exception:
                 s["skins"] = [0, 0]
     except Exception:
@@ -707,10 +708,13 @@ class App:
                            pygame.Rect(cx + 30, 196, 400, 338)]
         # 每个职业的外观索引（选人界面切换，写进 settings）
         _sk = self.settings.get("skins") or [0, 0]
-        try:
-            self.skin_index = {0: int(_sk[0]) % 3, 1: int(_sk[1]) % 3}
-        except Exception:
-            self.skin_index = {0: 0, 1: 0}
+        self.skin_index = {0: 0, 1: 0}
+        for _pid, _kind in ((0, "archer"), (1, "guard")):
+            try:
+                _n = len(sprites.skin_list(_kind))
+                self.skin_index[_pid] = max(0, min(_n - 1, int(_sk[_pid])))
+            except Exception:
+                self.skin_index[_pid] = 0
         self.skin_rects = {}
         # 卡片底边 = 196+330 = 526：难度行与词条行都必须排在它下面，
         # 否则会被两张卡压住（旧版难度行在 498，整行只剩中间一截露出来）
@@ -2816,8 +2820,11 @@ class App:
     def start_single(self, pid):
         # 把选人界面选的外观同步给精灵系统
         try:
-            sprites.SKIN["archer"] = int(self.skin_index.get(0, 0)) % 3
-            sprites.SKIN["guard"] = int(self.skin_index.get(1, 0)) % 3
+            for _pid, _kind in ((0, "archer"), (1, "guard")):
+                _n = len(sprites.skin_list(_kind))
+                _v = max(0, min(_n - 1, int(self.skin_index.get(_pid, 0))))
+                self.skin_index[_pid] = _v
+                sprites.SKIN[_kind] = _v
         except Exception:
             pass
         global engine, shared, server, client, guest, single_mode, player_pid, last_state

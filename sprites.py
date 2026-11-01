@@ -36,11 +36,16 @@ SKINS = {
             4: (108, 40, 38), 5: (236, 176, 96), 6: (30, 28, 34),
             7: (152, 92, 78), 8: (96, 62, 42), 9: (86, 70, 60),
             10: (62, 46, 40), 11: (244, 216, 168)}},
-        {"name": "霜原猎手", "pal": {
+        {"name": "霜原猎手", "style": "fur", "pal": {
             1: (242, 216, 190), 2: (72, 78, 92), 3: (96, 152, 194),
             4: (52, 92, 128), 5: (214, 226, 240), 6: (32, 40, 56),
             7: (150, 108, 100), 8: (108, 96, 84), 9: (104, 108, 120),
             10: (58, 62, 74), 11: (236, 244, 255)}},
+        {"name": "夜行刺客", "style": "mask", "pal": {
+            1: (226, 192, 158), 2: (40, 40, 52), 3: (62, 58, 92),
+            4: (34, 32, 54), 5: (176, 186, 208), 6: (24, 26, 36),
+            7: (146, 96, 88), 8: (62, 54, 66), 9: (58, 54, 66),
+            10: (40, 36, 44), 11: (198, 210, 232)}},
     ],
     "guard": [
         {"name": "熔炉卫兵", "pal": {
@@ -58,6 +63,11 @@ SKINS = {
             4: (96, 74, 44), 5: (206, 184, 128), 6: (34, 30, 26),
             7: (148, 92, 76), 8: (110, 76, 46), 9: (108, 94, 76),
             10: (70, 56, 44), 11: (120, 96, 64)}},
+        {"name": "重装守门人", "style": "tower", "pal": {
+            1: (230, 194, 156), 2: (46, 48, 56), 3: (86, 92, 108),
+            4: (50, 54, 68), 5: (188, 196, 212), 6: (28, 30, 38),
+            7: (148, 94, 82), 8: (108, 72, 44), 9: (78, 82, 94),
+            10: (56, 50, 46), 11: (96, 160, 190)}},
     ],
 }
 
@@ -73,6 +83,12 @@ def skin_name(kind, idx=None):
     lst = skin_list(kind)
     i = SKIN["archer" if kind == "archer" else "guard"] if idx is None else idx
     return lst[max(0, min(len(lst) - 1, i))]["name"]
+
+
+def skin_style(kind, idx=None):
+    lst = skin_list(kind)
+    i = SKIN["archer" if kind == "archer" else "guard"] if idx is None else idx
+    return lst[max(0, min(len(lst) - 1, i))].get("style", "hood")
 
 
 def skin_palette(kind, idx=None):
@@ -196,7 +212,7 @@ def _line(g, x0, y0, x1, y1, pid):
 # --------------------------------------------------------------------------
 # 角色
 # --------------------------------------------------------------------------
-def _character(kind, pose="idle0", frame=0):
+def _character(kind, pose="idle0", frame=0, style="hood"):
     """角色：36x52 的**人形**剪影（2 倍分辨率绘制后降采样，边缘带抗锯齿）。
 
     旧版是"圆头 + 两只大耳朵"，怎么看都像小狗。这一版：
@@ -308,29 +324,62 @@ def _character(kind, pose="idle0", frame=0):
     R(cx - 2, hy + 5, cx + 2, hy + 6, 2)     # 脖子阴影
     E(cx, hy, 4, 4, 1)                    # 头部底面
     if archer:
-        # 兜帽：包住头顶，帽尖向后上方
-        E(cx, hy - 2, 6, 4, 3)
-        P([(cx - 6, hy - 2), (cx - 6, hy + 4), (cx - 4, hy + 3),
-           (cx - 4, hy - 3)], 3)
-        T([(cx - 3, hy - 4), (cx + 2, hy - 9), (cx + 5, hy - 4)], 3)
-        R(cx - 6, hy + 2, cx + 6, hy + 3, 4)              # 帽檐阴影
-        # 帽檐下的脸（窄一点，眼睛压在下缘，才像"藏在兜帽里"）
-        R(cx - 2, hy + 3, cx + 3, hy + 5, 1)
-        R(cx - 1, hy + 3, cx + 0, hy + 4, 6)              # 眼
-        R(cx + 1, hy + 3, cx + 2, hy + 4, 6)
-        # 围巾领口
-        R(cx - 5, hy + 6, cx + 5, hy + 8, 4)
-        R(cx - 4, hy + 6, cx + 4, hy + 7, 3)
+        if style == "mask":
+            # 夜行刺客：头巾 + 蒙面，没有帽尖
+            E(cx, hy - 1, 5, 4, 3)
+            R(cx - 5, hy - 1, cx + 5, hy + 1, 3)
+            R(cx - 5, hy + 1, cx + 5, hy + 2, 4)
+            T([(cx - 4, hy - 1), (cx - 10, hy + 4), (cx - 5, hy + 5)], 3)   # 头巾尾
+            R(cx - 4, hy + 2, cx + 4, hy + 4, 2)          # 面罩
+            R(cx - 3, hy + 2, cx - 2, hy + 3, 11)         # 眼（亮）
+            R(cx + 1, hy + 2, cx + 2, hy + 3, 11)
+            R(cx - 5, hy + 6, cx + 5, hy + 8, 4)          # 高领
+            R(cx - 4, hy + 6, cx + 4, hy + 7, 2)
+        elif style == "fur":
+            # 霜原猎手：厚毛边兜帽，帽檐一圈亮毛
+            E(cx, hy - 2, 6, 5, 3)
+            P([(cx - 7, hy - 2), (cx - 7, hy + 5), (cx - 4, hy + 4),
+               (cx - 4, hy - 3)], 3)
+            T([(cx - 4, hy - 5), (cx + 1, hy - 11), (cx + 5, hy - 5)], 3)
+            R(cx - 7, hy + 1, cx + 7, hy + 3, 11)         # 毛边
+            R(cx - 6, hy + 1, cx + 6, hy + 2, 5)
+            R(cx - 2, hy + 3, cx + 3, hy + 5, 1)
+            R(cx - 1, hy + 3, cx + 0, hy + 4, 6)
+            R(cx + 1, hy + 3, cx + 2, hy + 4, 6)
+            R(cx - 5, hy + 6, cx + 5, hy + 8, 4)
+        else:
+            # 兜帽：包住头顶，帽尖向后上方
+            E(cx, hy - 2, 6, 4, 3)
+            P([(cx - 6, hy - 2), (cx - 6, hy + 4), (cx - 4, hy + 3),
+               (cx - 4, hy - 3)], 3)
+            T([(cx - 3, hy - 4), (cx + 2, hy - 9), (cx + 5, hy - 4)], 3)
+            R(cx - 6, hy + 2, cx + 6, hy + 3, 4)          # 帽檐阴影
+            # 帽檐下的脸（窄一点，眼睛压在下缘，才像"藏在兜帽里"）
+            R(cx - 2, hy + 3, cx + 3, hy + 5, 1)
+            R(cx - 1, hy + 3, cx + 0, hy + 4, 6)          # 眼
+            R(cx + 1, hy + 3, cx + 2, hy + 4, 6)
+            # 围巾领口
+            R(cx - 5, hy + 6, cx + 5, hy + 8, 4)
+            R(cx - 4, hy + 6, cx + 4, hy + 7, 3)
     else:
-        # 全罩盔：圆顶 + 面甲缝 + 缨（收小，别把脑袋画成一个大蘑菇）
-        E(cx, hy - 1, 4, 3, 5)
-        R(cx - 4, hy - 1, cx + 4, hy + 1, 5)
-        R(cx - 4, hy + 1, cx + 4, hy + 2, 4)              # 盔沿阴影
-        R(cx - 3, hy + 2, cx + 3, hy + 4, 2)              # 面甲
-        R(cx - 2, hy + 2, cx + 2, hy + 3, 6)              # 眼缝
-        R(cx - 1, hy + 1, cx + 1, hy + 5, 5)              # 护鼻
-        for i in range(3):                                # 缨
-            R(cx - 1, hy - 5 - i, cx + 1, hy - 4 - i, 11)
+        if style == "tower":
+            # 重装守门人：封闭大盔 + 横眼缝 + 竖脊，无缨
+            E(cx, hy - 2, 5, 4, 5)
+            R(cx - 5, hy - 2, cx + 5, hy + 3, 5)
+            R(cx - 5, hy + 2, cx + 5, hy + 3, 4)
+            R(cx - 4, hy + 1, cx + 4, hy + 2, 6)          # 横眼缝
+            R(cx - 1, hy - 2, cx + 1, hy + 4, 11)         # 竖脊
+            R(cx - 5, hy + 4, cx + 5, hy + 5, 3)          # 护颈
+        else:
+            # 全罩盔：圆顶 + 面甲缝 + 缨（收小，别把脑袋画成一个大蘑菇）
+            E(cx, hy - 1, 4, 3, 5)
+            R(cx - 4, hy - 1, cx + 4, hy + 1, 5)
+            R(cx - 4, hy + 1, cx + 4, hy + 2, 4)          # 盔沿阴影
+            R(cx - 3, hy + 2, cx + 3, hy + 4, 2)          # 面甲
+            R(cx - 2, hy + 2, cx + 2, hy + 3, 6)          # 眼缝
+            R(cx - 1, hy + 1, cx + 1, hy + 5, 5)          # 护鼻
+            for i in range(3):                            # 缨
+                R(cx - 1, hy - 5 - i, cx + 1, hy - 4 - i, 11)
 
     # ================= 手臂 / 武器 =================
     if archer:
@@ -388,14 +437,23 @@ def _character(kind, pose="idle0", frame=0):
             R(cx + 7, top + 17, cx + 9, top + 20, 8)      # 握柄
             R(cx + 7, top + 18, cx + 7, top + 19, 4)
             R(cx + 6, top + 20, cx + 10, top + 21, 5)     # 配重
-        # 左臂 + 圆盾（金属边 + 盾面 + 中心凸起 + 徽记）
+        # 左臂 + 盾
         R(cx - 8, top + 15, cx - 6, top + 21, 2)
-        E(cx - 10, top + 19, 4, 5, 5)                     # 外圈金属
-        E(cx - 10, top + 19, 3, 4, 3)                     # 盾面
-        E(cx - 10, top + 18, 2, 2, 4)                     # 上部暗面
-        E(cx - 10, top + 19, 1, 1, 5)                     # 中心凸起
-        R(cx - 12, top + 18, cx - 11, top + 20, 4)        # 左侧暗边
-        R(cx - 11, top + 19, cx - 9, top + 19, 11)        # 横向徽记
+        if style == "tower":
+            # 塔盾：方形大盾，竖脊 + 四角铆钉
+            R(cx - 12, top + 12, cx - 6, top + 27, 3)
+            R(cx - 12, top + 12, cx - 6, top + 13, 5)
+            R(cx - 12, top + 12, cx - 12, top + 27, 4)
+            R(cx - 9, top + 13, cx - 9, top + 26, 11)     # 竖脊
+            R(cx - 11, top + 14, cx - 7, top + 15, 5)
+            R(cx - 11, top + 24, cx - 7, top + 25, 5)
+        else:
+            E(cx - 10, top + 19, 4, 5, 5)                 # 外圈金属
+            E(cx - 10, top + 19, 3, 4, 3)                 # 盾面
+            E(cx - 10, top + 18, 2, 2, 4)                 # 上部暗面
+            E(cx - 10, top + 19, 1, 1, 5)                 # 中心凸起
+            R(cx - 12, top + 18, cx - 11, top + 20, 4)    # 左侧暗边
+            R(cx - 11, top + 19, cx - 9, top + 19, 11)    # 横向徽记
 
     return g
 
@@ -628,7 +686,7 @@ def get_char(kind, pose="idle0", skin=None):
     base_pose = "idle" if pose.startswith("idle") else pose
     if pose.startswith("run"):
         base_pose = "run"
-    g = _character(kind, base_pose, frame)
+    g = _character(kind, base_pose, frame, skin_style(kind, skin))
     pal = skin_palette(kind, skin)
     s = _render(g, pal)
     # 内部按 2 倍分辨率绘制，这里降采样回 36x52：

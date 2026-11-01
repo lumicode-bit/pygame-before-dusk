@@ -451,6 +451,8 @@ class WorldRenderer:
             pygame.draw.circle(self._portal_glow, (255, 210, 130, 10),
                                (110, 110), r)
         self._rune_ring = None       # 符文环贴图（懒建一次，之后只做旋转）
+        self._slash_ghost = {}       # pid -> [(方向, 已存在时间)]
+        self._slash_last = {}        # pid -> 上一帧的 swing 值
         self._lava_cache = {}        # (kind,w,h) -> 静态渐变层
 
     # ---- 深度（到最近暴露顶面的距离）----
@@ -1252,6 +1254,32 @@ class WorldRenderer:
             except Exception:
                 continue
 
+    def _draw_danger_beam(self, surf, cx, top, bot, t):
+        """落石预警光柱：从裂缝垂到地面，脉动一次比一次亮。"""
+        try:
+            h = int(bot - top)
+            if h <= 6:
+                return
+            pulse = 0.5 + 0.5 * math.sin(t * 9.0)
+            w = 16 + int(6 * pulse)
+            beam = pygame.Surface((w, h), pygame.SRCALPHA)
+            for i in range(h):
+                k = i / float(max(1, h - 1))
+                a = int((28 + 34 * pulse) * (0.35 + 0.65 * k))
+                beam.fill((255, 150, 90, a), (0, i, w, 1))
+            surf.blit(beam, (int(cx) - w // 2, int(top)),
+                      special_flags=pygame.BLEND_RGBA_ADD)
+            # 中轴亮线
+            pygame.draw.line(surf, (255, 214, 170), (int(cx), int(top)),
+                             (int(cx), int(bot)), 1)
+            # 地面上的落点圈
+            pygame.draw.ellipse(surf, theme.alpha_color((255, 120, 80), 170),
+                                (int(cx) - 22, int(bot) - 8, 44, 14), 2)
+            pygame.draw.ellipse(surf, theme.alpha_color((255, 90, 60), 90),
+                                (int(cx) - 30, int(bot) - 12, 60, 20), 1)
+        except Exception:
+            pass
+
     def _draw_sky_crack(self, surf, cx, cy, t, ratio):
         """天空裂缝（落石前兆）：发光裂隙 + 放射碎纹 + 边缘碎屑。
 
@@ -1339,10 +1367,16 @@ class WorldRenderer:
                 land_y = float(r.get("land_y", 19 * TILE)) - cam_y
                 # 裂缝固定在"天空"：夹在 HUD 之下、落点之上的一段区域，
                 # 24 会被血条卡片压住，72 才开始露出来
-                _lo = 72.0
-                _hi = max(_lo, land_y - 170.0)
+                # 裂缝要避开顶部 HUD 和消息横幅（72 正好被横幅压住，
+                # 玩家会以为"落石没了"），能往下就往下放。
+                _lo = 124.0
+                _hi = max(_lo, land_y - 150.0)
                 crack_y = min(max(float(r.get("y0", 5 * TILE)) - cam_y, _lo), _hi)
 
+                # 落点危险光柱：从裂缝一直拉到地面。
+                # 石头是从画面外掉下来的，没有这道光柱玩家根本看不到"上面要砸了"。
+                if state in ("open", "fall"):
+                    self._draw_danger_beam(surf, rx, crack_y, land_y, t)
                 if state == "open":
                     ratio = 1.0 - max(0.0, float(r.get("open_t", 0.0))) / 0.55
                     ratio = max(0.0, min(1.0, ratio))
@@ -1368,6 +1402,18 @@ class WorldRenderer:
                     pygame.draw.ellipse(shade, (0, 0, 0, int(110 * (0.4 + k))), (0, 0, 42, 13))
                     surf.blit(shade, (rx - 21, land_y - 7))
                     pygame.draw.ellipse(surf, (255, 90, 70), (rx - 15, land_y - 5, 30, 7), 2)
+
+                # 坠落拖尾
+                if state == "fall":
+                    for k in (1, 2, 3, 4):
+                        ty = ry - k * 16
+                        if ty < 0:
+                            break
+                        a = max(0, 120 - k * 26)
+                        if a <= 4:
+                            break
+                        pygame.draw.circle(surf, theme.alpha_color((150, 140, 150), a),
+                                           (int(rx), int(ty)), max(2, 9 - k * 2))
 
                 # 石块本体
                 pts = self._island_rock_poly(rx, ry, int(r["x"]), 1.0)
@@ -2273,7 +2319,72 @@ class WorldRenderer:
             except Exception:
                 pass
 
+    def _draw_slash(self, surf, x, y, facing, d, k, alpha=1.0):
+        """盾卫的斜斩刀光：dir=+1 从左上劈到右下，-1 反过来。
+
+        连续两刀方向相反，叠起来就是一个 X；上一刀会留 0.26 秒残影，
+        所以 X 是"画"出来的，而不是单帧的十字。
+        """
+        try:
+            f = 1 if facing >= 0 else -1
+            cx = x + f * 8
+            cy = y - 20
+            ln = 46.0
+            if d > 0:
+                p0 = (cx - ln * 0.72 * f, cy - ln * 0.72)
+                p1 = (cx + ln * 0.86 * f, cy + ln * 0.52)
+            else:
+                p0 = (cx + ln * 0.72 * f, cy - ln * 0.72)
+                p1 = (cx - ln * 0.86 * f, cy + ln * 0.52)
+            prog = max(0.05, min(1.0, k))
+            ex = p0[0] + (p1[0] - p0[0]) * prog
+            ey = p0[1] + (p1[1] - p0[1]) * prog
+            # 三层叠加：外辉 -> 刃身 -> 刃芯
+            layers = ((14, (70, 160, 225), 0.30),
+                      (8, (170, 226, 255), 0.70),
+                      (3, (245, 254, 255), 1.00))
+            for wdt, col, ia in layers:
+                c = tuple(int(ch * (0.55 + 0.45 * alpha)) for ch in col)
+                pygame.draw.line(surf, c, (int(p0[0]), int(p0[1])),
+                                 (int(ex), int(ey)), int(wdt))
+            # 起手处的一小片火花
+            theme.glow_circle(surf, (p0[0], p0[1]), 12, (200, 238, 255),
+                              0.60 * alpha, 3)
+            theme.glow_circle(surf, (ex, ey), 10, (255, 255, 255),
+                              0.85 * alpha, 3)
+        except Exception:
+            pass
+
+    def _draw_shot_fx(self, surf, rect, facing, fl):
+        """弓箭手射击：弓弦松开的白色闪光 + 沿瞄准方向的一道箭气。"""
+        try:
+            f = 1 if facing >= 0 else -1
+            bx = rect.centerx + f * 22
+            by = rect.centery - 6
+            theme.glow_circle(surf, (bx, by), int(16 * fl) + 6, (255, 246, 210),
+                              0.55 * fl, 3)
+            theme.glow_circle(surf, (bx, by), int(8 * fl) + 3, (255, 255, 255),
+                              0.85 * fl, 2)
+            # 箭气：一条快速变淡的短横线
+            ln = int(13 * fl)
+            if ln > 2:
+                for i, (wdt, col) in enumerate(((4, (150, 226, 255)),
+                                                (2, (245, 255, 255)))):
+                    pygame.draw.line(surf, col, (int(bx), int(by)),
+                                     (int(bx + f * ln), int(by)), wdt)
+            # 弓臂两端的小亮点
+            for sy in (-1, 1):
+                theme.glow_circle(surf, (bx - f * 3, by + sy * 12), 5,
+                                  (220, 240, 255), 0.5 * fl, 2)
+        except Exception:
+            pass
+
     def _draw_players(self, surf, cam_x, cam_y, t, st, focus_pid=None):
+        # 残影计时用帧间隔（渲染器没有自己的 dt，从 t 差分算）
+        _dt = t - getattr(self, "_fx_last_t", t)
+        self._fx_last_t = t
+        if not (0.0 < _dt < 0.2):
+            _dt = 1.0 / 60.0
         for pid in (0, 1):
             p = st.get("players", {}).get(pid)
             if not p:
@@ -2320,12 +2431,37 @@ class WorldRenderer:
             else:
                 surf.blit(img, rect)
 
-            # ---- 武器 ----
+            # ---- 武器 / 攻击特效 ----
             if pid == 1:
                 if p.get("blocking"):
                     self._draw_shield(surf, rect, p["facing"], t)
-                if p.get("swing", 0) > 0:
-                    self._draw_sword(surf, rect, p["facing"], 1.0 - p["swing"])
+                sw = p.get("swing", 0.0)
+                if sw > 0:
+                    self._draw_sword(surf, rect, p["facing"], 1.0 - sw)
+                # 左右交替的 X 斩：新的一刀出手时，把上一刀留成残影
+                prev = self._slash_last.get(pid, 0.0)
+                if sw > 0.92 >= prev:
+                    self._slash_ghost[pid] = [
+                        (g, age + 0.0) for (g, age) in self._slash_ghost.get(pid, [])
+                    ] + [(p.get("swing_dir", 1), 0.0)]
+                    self._slash_ghost[pid] = self._slash_ghost[pid][-2:]
+                self._slash_last[pid] = sw
+                # 残影
+                keep = []
+                for d, age in self._slash_ghost.get(pid, []):
+                    na = age + _dt
+                    if na < 0.26:
+                        self._draw_slash(surf, x, y, p["facing"], d, na / 0.26, 0.55)
+                        keep.append((d, na))
+                self._slash_ghost[pid] = keep
+                if sw > 0:
+                    self._draw_slash(surf, x, y, p["facing"],
+                                     p.get("swing_dir", 1), 1.0 - sw, 1.0)
+            else:
+                # 弓箭手：松弦的箭气 + 枪口闪光
+                fl = p.get("shoot_flash", 0.0)
+                if fl > 0.02:
+                    self._draw_shot_fx(surf, rect, p["facing"], fl)
 
             # 主角标记
             if focus_pid is not None and pid == focus_pid:

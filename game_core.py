@@ -636,6 +636,7 @@ class GameEngine:
                 "hp": float(base["maxhp"]), "maxhp": float(base["maxhp"]),
                 "facing": 1, "moving": False, "blocking": False,
                 "swing": 0.0, "shoot_cd": 0.0, "sword_cd": 0.0,
+                "swing_dir": 1, "shoot_flash": 0.0,
                 "jump_cd": 0.0, "drop_t": 0.0,
                 "on_ground": False, "coyote": 0.0, "jumps": 0, "role": pid,
                 "dash_cd": 0.0, "dash_t": 0.0, "dash_dir": 1, "invuln": 0.0,
@@ -1342,15 +1343,19 @@ class GameEngine:
                               ARROW_DMG * _pw)
                     self.aid_counter += 1
                     self.arrows.append(a)
+                    p["shoot_flash"] = 1.0
                     self.events.append(("shoot", int(bx), int(by)))
 
             # 盾卫挥剑
             if pid == 1:
                 p["sword_cd"] = max(0.0, p["sword_cd"] - dt)
                 p["swing"] = max(0.0, p["swing"] - dt * 3.2)
+                p["shoot_flash"] = max(0.0, p.get("shoot_flash", 0.0) - dt * 6.0)
                 if inp.get("sword") and p["sword_cd"] <= 0:
                     p["sword_cd"] = 0.5
                     p["swing"] = 1.0
+                    # 左右交替：一次从左上劈到右下，下一次反过来 —— 两刀叠成 X
+                    p["swing_dir"] = -int(p.get("swing_dir", 1) or 1)
                     fx = p["x"] + p["facing"] * (PLAYER_W / 2 - 2)
                     fy = p["y"] - 6
                     # 判定盒往身后多留 16px：怪经常直接站在身上（贴身追击时
@@ -2821,6 +2826,8 @@ class GameEngine:
                     "x": round(p["x"], 2), "y": round(p["y"], 2),
                     "facing": p["facing"], "moving": p["moving"],
                     "blocking": p["blocking"], "swing": round(p["swing"], 2),
+                    "swing_dir": int(p.get("swing_dir", 1) or 1),
+                    "shoot_flash": round(p.get("shoot_flash", 0.0), 2),
                     "hp": max(0, int(p["hp"])), "maxhp": int(p["maxhp"]),
                     "dash_cd": round(p["dash_cd"], 2), "dash_max": DASH_CD,
                     "invuln": round(p["invuln"], 2),
