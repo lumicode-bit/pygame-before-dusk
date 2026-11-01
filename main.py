@@ -349,6 +349,34 @@ def _key_is(code, action):
     return code in KEYMAP.get(action, ())
 
 
+_bad_state_warned = False
+
+
+def _valid_state(st):
+    """客机收到的状态包是否可用。
+
+    房主自己 pack() 出来的包一定合法；这里防的是网络上的畸形/半截包
+    （或对端版本不一致）：不校验的话 scene_game 每帧 KeyError，客户端黑屏刷栈。
+    """
+    global _bad_state_warned
+    try:
+        ps = st["players"]
+        for pid in (0, 1):
+            p = ps[pid]
+            if not isinstance(p, dict):
+                raise TypeError("player 不是字典")
+            if not isinstance(p.get("x"), (int, float)):
+                raise TypeError("x 不是数字")
+            if not isinstance(p.get("y"), (int, float)):
+                raise TypeError("y 不是数字")
+        return True
+    except Exception as e:
+        if not _bad_state_warned:
+            _bad_state_warned = True
+            print("[联机] 丢弃畸形状态包：%r" % (e,))
+        return False
+
+
 def apply_keymap(data):
     """从 settings 读回键位；非法/缺失项回退默认。"""
     global KEYMAP
@@ -1576,8 +1604,9 @@ class App:
                 while True:
                     item = net_out.get_nowait()
                     if item[0] == "state":
-                        self.last_state = item[1]
-                        got = True
+                        if _valid_state(item[1]):
+                            self.last_state = item[1]
+                            got = True
                     elif item[0] == "hello":
                         global player_pid
                         try:
@@ -1603,8 +1632,9 @@ class App:
                 while True:
                     item = net_out.get_nowait()
                     if item[0] == "state":
-                        last_state = item[1]
-                        last_state_time = item[2]
+                        if _valid_state(item[1]):
+                            last_state = item[1]
+                            last_state_time = item[2]
             except queue.Empty:
                 pass
             st = last_state
@@ -2596,9 +2626,18 @@ class App:
             return r.y + int(v * k)
 
         ui.panel(s, r, "远征成功", "暮色之前，你们抵达了传送门", icon="star")
-        deaths = st.get("deaths", 0)
-        elapsed = st.get("elapsed", 0)
-        kills = st.get("kills", 0)
+
+        # 数值字段一律强制转型：联机时 st 来自网络，字段可能是字符串/None，
+        # 直接 "%d" % kills 或 elapsed < 260 会抛 TypeError
+        def _num(v, d=0.0):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return d
+
+        deaths = int(_num(st.get("deaths"), 0))
+        elapsed = _num(st.get("elapsed"), 0.0)
+        kills = int(_num(st.get("kills"), 0))
         rank = "S" if deaths == 0 and elapsed < 260 else "A" if deaths <= 1 else \
                "B" if deaths <= 3 else "C"
         rcol = {"S": theme.GOLD_LIGHT, "A": theme.LIME, "B": theme.TEAL, "C": theme.SLATE_200}[rank]

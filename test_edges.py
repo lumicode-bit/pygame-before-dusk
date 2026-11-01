@@ -899,6 +899,62 @@ def test_event_feedback():
         M.guest, M.single_mode, M.client, M.net_out, M.last_state = \
             old_g, old_s, old_c, old_q, old_ls
 
+    # 结算页的数值字段来自网络时可能是字符串/None，必须强制转型而不是崩
+    _bad_results = [
+        {"kills": "abc", "elapsed": 100, "win": True},
+        {"kills": 3, "elapsed": None, "win": True},
+        {"kills": None, "deaths": None, "elapsed": None, "win": True},
+        {"kills": 3, "deaths": -5, "elapsed": 100, "win": True},
+    ]
+    _crash = None
+    for _br in _bad_results:
+        ap3 = M.App()
+        ap3.last_st = _br
+        ap3.final_state = _br
+        try:
+            ap3._update_records(_br)
+            ap3._apply_scene("RESULT")
+            ap3.scene_result([], pygame.key.get_pressed(), (640, 400))
+        except Exception as ex:
+            _crash = "%r -> %s: %s" % (_br, type(ex).__name__, ex)
+            break
+    check("结算页畸形数值不崩", _crash is None, _crash or "")
+
+    # 客机收到畸形状态包（网络上的半截包/版本不一致）必须丢弃而不是崩
+    try:
+        import time as _t
+        M.guest, M.single_mode = True, False
+        M.client = None
+        M.net_out = _q.Queue()
+        M.last_state = None
+        ap2 = M.App()
+        ap2._apply_scene("GAME")
+        ap2.dt = core.TICK_DT
+        bad_states = [{}, {"players": {}}, {"players": {0: {}, 1: {}}},
+                      {"players": []},
+                      {"players": {0: {"x": "a", "y": None}, 1: {}}}]
+        crashed = None
+        for bs in bad_states:
+            M.net_out.put_nowait(("state", bs, _t.time()))
+            try:
+                for _ in range(2):
+                    ap2.scene_game([], pygame.key.get_pressed(), (640, 360))
+            except Exception as ex:
+                crashed = "%s: %s" % (type(ex).__name__, ex)
+                break
+        check("客机丢弃畸形状态包且不崩", crashed is None, crashed or "")
+        check("畸形包没有污染 last_state", M.last_state is None)
+        # 合法包仍要能收下
+        _h = core.GameEngine()
+        _h.reset()
+        _h.step({0: {}, 1: {}}, core.TICK_DT)
+        M.net_out.put_nowait(("state", _h.pack(), _t.time()))
+        ap2.scene_game([], pygame.key.get_pressed(), (640, 360))
+        check("合法状态包仍被接受", M.last_state is not None)
+    finally:
+        M.guest, M.single_mode, M.client, M.net_out, M.last_state = \
+            old_g, old_s, old_c, old_q, old_ls
+
     # theme.text 参数传错时也不能把异常抛给调用方
     bad = None
     try:
