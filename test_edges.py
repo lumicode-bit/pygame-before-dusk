@@ -748,6 +748,45 @@ def test_ai_traverse():
     check("召回：本来就在身边时不传送", abs(e.players[1]["x"] - near_x) < 1.0,
           "AI x=%.1f" % (e.players[1]["x"] / T))
 
+    # 10.5) 外观（皮肤）：三套各不相同，且同一套会命中缓存
+    try:
+        import sprites as SP
+        cols = []
+        for si in range(len(SP.skin_list("archer"))):
+            img = SP.get_char("archer", "idle0", si)
+            cols.append(tuple(img.get_at((18, 22))))
+        check("弓箭手三套外观配色不同", len(set(cols)) >= 2, str(cols))
+        a1 = SP.get_char("archer", "idle0", 1)
+        a2 = SP.get_char("archer", "idle0", 1)
+        check("外观贴图有缓存（同一对象）", a1 is a2)
+        gcols = []
+        for si in range(len(SP.skin_list("guard"))):
+            img = SP.get_char("guard", "idle0", si)
+            gcols.append(tuple(img.get_at((18, 24))))
+        check("盾卫三套外观配色不同", len(set(gcols)) >= 2, str(gcols))
+    except Exception as exc:
+        check("外观系统可用", False, repr(exc))
+
+    # 10.6) 站在高台上的地面怪（玩家砍不到）也要被兜底清掉
+    e = core.GameEngine()
+    e.reset()
+    e.wave = 2
+    e.wave2_spawned = True
+    e.wave1_spawned = True
+    m = core.Monster(7101, "ground", 100 * T, 15 * T - core.MONSTER_H)
+    e.monsters = [m]
+    e.players[0]["x"] = 100 * T
+    e.players[0]["y"] = 19 * T
+    e.players[1]["x"] = 101 * T
+    e.players[1]["y"] = 19 * T
+    t = 0.0
+    while t < 14.0 and m in e.monsters:
+        m.x = 100 * T
+        m.y = 15 * T - core.MONSTER_H
+        e.step({}, core.TICK_DT)
+        t += core.TICK_DT
+    check("高台上的地面怪会被兜底清掉", m not in e.monsters, "%.1fs 仍在" % t)
+
     # 11) 泛光（画质档位）不能崩、不能改画面尺寸
     try:
         r = R.WorldRenderer()

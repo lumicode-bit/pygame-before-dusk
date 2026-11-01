@@ -780,7 +780,12 @@ class GameEngine:
                     rec[0] = m.x
                     rec[1] = 0.0
                 if rec[1] >= STRAY_STILL_TIME:
-                    if not any(abs(m.x - p["x"]) < STRAY_MIN_DIST for p in alive_p):
+                    # 判定"够不到"：横向太远，**或者**高度差太大
+                    # （站在塔一层/平台上的地面怪，玩家在下面砍不到，
+                    #  弓箭又不能伤地面怪 —— 一样是软锁）
+                    _far = all(abs(m.x - p["x"]) > STRAY_MIN_DIST for p in alive_p)
+                    _off = all(abs(m.y - p["y"]) > 110 for p in alive_p)
+                    if _far or _off:
                         stray.append(m)
             for mid in list(track):
                 if mid not in seen:

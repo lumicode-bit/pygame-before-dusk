@@ -21,34 +21,65 @@ FW, FH = 36, 28
 
 OUTLINE = (22, 18, 26)
 
-PALETTES = {
-    "archer": {
-        1: (234, 198, 160),   # 皮肤
-        2: (78, 66, 60),      # 深布（后腿 / 阴影）
-        3: (86, 150, 134),    # 斗篷绿
-        4: (44, 92, 82),      # 斗篷暗部
-        5: (226, 188, 104),   # 金饰
-        6: (34, 36, 44),      # 眼
-        7: (150, 96, 84),     # 嘴 / 鼻影
-        8: (128, 88, 54),     # 皮革
-        9: (96, 84, 72),      # 裤子
-        10: (74, 58, 48),     # 靴子
-        11: (206, 214, 226),  # 金属
-    },
-    "guard": {
-        1: (234, 198, 160),   # 皮肤
-        2: (58, 60, 70),      # 深铁
-        3: (94, 108, 128),    # 甲片
-        4: (54, 64, 82),      # 甲片暗部
-        5: (198, 206, 220),   # 钢
-        6: (30, 32, 40),      # 眼缝
-        7: (150, 96, 84),
-        8: (122, 78, 50),     # 皮带
-        9: (84, 88, 102),     # 裤甲
-        10: (62, 54, 50),     # 战靴
-        11: (168, 62, 58),    # 红缨
-    },
+# 每个职业 3 套外观（选人界面可切换）。pal 的键和下面 _character 里用的一致：
+#   1 皮肤 / 2 深布 / 3 主色 / 4 主色暗部 / 5 金属或金饰 / 6 眼
+#   7 嘴鼻 / 8 皮革 / 9 裤子 / 10 靴子 / 11 亮金属或缨
+SKINS = {
+    "archer": [
+        {"name": "林间游侠", "pal": {
+            1: (234, 198, 160), 2: (78, 66, 60), 3: (86, 150, 134),
+            4: (44, 92, 82), 5: (226, 188, 104), 6: (34, 36, 44),
+            7: (150, 96, 84), 8: (128, 88, 54), 9: (96, 84, 72),
+            10: (74, 58, 48), 11: (206, 214, 226)}},
+        {"name": "赤羽斥候", "pal": {
+            1: (238, 200, 158), 2: (74, 58, 52), 3: (176, 74, 62),
+            4: (108, 40, 38), 5: (236, 176, 96), 6: (30, 28, 34),
+            7: (152, 92, 78), 8: (96, 62, 42), 9: (86, 70, 60),
+            10: (62, 46, 40), 11: (244, 216, 168)}},
+        {"name": "霜原猎手", "pal": {
+            1: (242, 216, 190), 2: (72, 78, 92), 3: (96, 152, 194),
+            4: (52, 92, 128), 5: (214, 226, 240), 6: (32, 40, 56),
+            7: (150, 108, 100), 8: (108, 96, 84), 9: (104, 108, 120),
+            10: (58, 62, 74), 11: (236, 244, 255)}},
+    ],
+    "guard": [
+        {"name": "熔炉卫兵", "pal": {
+            1: (234, 198, 160), 2: (58, 60, 70), 3: (94, 108, 128),
+            4: (54, 64, 82), 5: (198, 206, 220), 6: (30, 32, 40),
+            7: (150, 96, 84), 8: (122, 78, 50), 9: (84, 88, 102),
+            10: (62, 54, 50), 11: (168, 62, 58)}},
+        {"name": "铁誓骑士", "pal": {
+            1: (236, 202, 166), 2: (48, 50, 58), 3: (74, 78, 92),
+            4: (40, 44, 54), 5: (226, 200, 120), 6: (28, 30, 38),
+            7: (150, 96, 84), 8: (96, 66, 42), 9: (66, 68, 78),
+            10: (48, 42, 40), 11: (236, 240, 248)}},
+        {"name": "岩甲守备", "pal": {
+            1: (228, 190, 150), 2: (70, 62, 52), 3: (150, 120, 72),
+            4: (96, 74, 44), 5: (206, 184, 128), 6: (34, 30, 26),
+            7: (148, 92, 76), 8: (110, 76, 46), 9: (108, 94, 76),
+            10: (70, 56, 44), 11: (120, 96, 64)}},
+    ],
 }
+
+# 当前选中的外观索引（选人界面 / 存档设置里改）
+SKIN = {"archer": 0, "guard": 0}
+
+
+def skin_list(kind):
+    return SKINS["archer" if kind == "archer" else "guard"]
+
+
+def skin_name(kind, idx=None):
+    lst = skin_list(kind)
+    i = SKIN["archer" if kind == "archer" else "guard"] if idx is None else idx
+    return lst[max(0, min(len(lst) - 1, i))]["name"]
+
+
+def skin_palette(kind, idx=None):
+    lst = skin_list(kind)
+    i = SKIN["archer" if kind == "archer" else "guard"] if idx is None else idx
+    return lst[max(0, min(len(lst) - 1, i))]["pal"]
+
 
 
 def _blank(w, h):
@@ -218,8 +249,8 @@ def _character(kind, pose="idle0", frame=0):
     if archer:
         # 围巾：两片尾巴向后飘，跑动时上下摆
         fl = int(round(math.sin(frame * 1.6) * 1.5)) if pose.startswith("run") else 0
-        T([(cx - 6, top + 14), (cx - 13, top + 12 + fl), (cx - 12, top + 17 + fl)], 4)
-        T([(cx - 6, top + 15), (cx - 11, top + 16 + fl), (cx - 9, top + 20 + fl)], 3)
+        T([(cx - 6, top + 14), (cx - 11, top + 13 + fl), (cx - 10, top + 18 + fl)], 4)
+        T([(cx - 6, top + 15), (cx - 9, top + 16 + fl), (cx - 8, top + 19 + fl)], 3)
     else:
         # 短披风
         P([(cx - 6, top + 14), (cx + 6, top + 14), (cx + 7, top + 27),
@@ -238,8 +269,9 @@ def _character(kind, pose="idle0", frame=0):
     if not archer:
         R(cx - 6 + swing, top + 31, cx - 2 + swing, top + 42, 3)   # 胫甲（深钢）
         R(cx + 1 - swing, top + 31, cx + 5 - swing, top + 42, 3)
-        R(cx - 2 + swing, top + 31, cx - 2 + swing, top + 42, 5)   # 前缘高光
-        R(cx + 5 - swing, top + 31, cx + 5 - swing, top + 42, 5)
+        R(cx - 6 + swing, top + 31, cx - 6 + swing, top + 42, 4)   # 内侧暗边
+        R(cx + 5 - swing, top + 31, cx + 5 - swing, top + 42, 4)
+        R(cx - 2 + swing, top + 31, cx - 2 + swing, top + 42, 9)   # 外侧中调
 
     # ================= 躯干 =================
     if archer:
@@ -273,6 +305,7 @@ def _character(kind, pose="idle0", frame=0):
 
     # ================= 头 =================
     hy = top + 8
+    R(cx - 2, hy + 5, cx + 2, hy + 6, 2)     # 脖子阴影
     E(cx, hy, 4, 4, 1)                    # 头部底面
     if archer:
         # 兜帽：包住头顶，帽尖向后上方
@@ -289,34 +322,45 @@ def _character(kind, pose="idle0", frame=0):
         R(cx - 5, hy + 6, cx + 5, hy + 8, 4)
         R(cx - 4, hy + 6, cx + 4, hy + 7, 3)
     else:
-        # 全罩盔：圆顶 + 面甲缝 + 红缨
-        E(cx, hy - 2, 5, 4, 5)
-        R(cx - 5, hy - 2, cx + 5, hy + 1, 5)
-        R(cx - 5, hy + 1, cx + 5, hy + 2, 4)              # 盔沿阴影
-        R(cx - 4, hy + 2, cx + 4, hy + 4, 2)              # 面甲
-        R(cx - 3, hy + 2, cx + 3, hy + 3, 6)              # 眼缝
+        # 全罩盔：圆顶 + 面甲缝 + 缨（收小，别把脑袋画成一个大蘑菇）
+        E(cx, hy - 1, 4, 3, 5)
+        R(cx - 4, hy - 1, cx + 4, hy + 1, 5)
+        R(cx - 4, hy + 1, cx + 4, hy + 2, 4)              # 盔沿阴影
+        R(cx - 3, hy + 2, cx + 3, hy + 4, 2)              # 面甲
+        R(cx - 2, hy + 2, cx + 2, hy + 3, 6)              # 眼缝
         R(cx - 1, hy + 1, cx + 1, hy + 5, 5)              # 护鼻
-        for i in range(4):                                # 红缨
-            R(cx - 1, hy - 7 - i, cx + 1, hy - 6 - i, 11)
+        for i in range(3):                                # 缨
+            R(cx - 1, hy - 5 - i, cx + 1, hy - 4 - i, 11)
 
     # ================= 手臂 / 武器 =================
     if archer:
-        # 持弓的前臂
-        R(cx + 5, top + 15, cx + 7, top + 21, 1)
-        R(cx + 5, top + 20, cx + 7, top + 22, 8)
-        # 弓：木色弓臂 + 细弦
-        bx = cx + 11
-        pts = []
+        # 前臂伸向弓把
+        R(cx + 5, top + 15, cx + 7, top + 20, 1)
+        R(cx + 6, top + 19, cx + 9, top + 21, 8)          # 护腕
+        R(cx + 8, top + 18, cx + 9, top + 20, 1)          # 手
+        # 反曲弓：竖直弓臂（向右鼓）+ 中段握把 + 内侧直弦
+        bx = cx + 9
+        limb = []
         for i in range(11):
-            a = -1.15 + i * 0.23
-            pts.append((bx + math.cos(a) * 4, top + 18 + math.sin(a) * 8))
-        for i in range(len(pts) - 1):
+            t = i / 10.0
+            limb.append((bx + 1 + 3.2 * math.sin(t * math.pi),
+                         top + 7 + t * 22))
+        for i in range(len(limb) - 1):
             for ox in (0, 1):
-                Ln(int(pts[i][0]) + ox, int(pts[i][1]),
-                   int(pts[i + 1][0]) + ox, int(pts[i + 1][1]), 8)
-        R(bx - 1, top + 17, bx + 1, top + 20, 5)          # 握把
-        Ln(int(pts[0][0]) - 1, int(pts[0][1]),
-           int(pts[-1][0]) - 1, int(pts[-1][1]), 11)      # 弓弦
+                Ln(int(limb[i][0]) + ox, int(limb[i][1]),
+                   int(limb[i + 1][0]) + ox, int(limb[i + 1][1]), 8)
+        # 弓臂高光（内侧一道亮木）
+        for i in range(0, len(limb) - 1, 2):
+            Ln(int(limb[i][0]), int(limb[i][1]),
+               int(limb[i + 1][0]), int(limb[i + 1][1]), 5)
+        # 握把
+        R(int(bx) + 2, top + 16, int(bx) + 5, top + 20, 8)
+        R(int(bx) + 3, top + 17, int(bx) + 4, top + 19, 5)
+        # 弓梢
+        R(int(limb[0][0]) - 1, top + 6, int(limb[0][0]) + 1, top + 8, 5)
+        R(int(limb[-1][0]) - 1, top + 28, int(limb[-1][0]) + 1, top + 30, 5)
+        # 弓弦
+        Ln(int(bx) + 1, top + 7, int(bx) + 1, top + 29, 11)
         # 后臂
         R(cx - 7, top + 15, cx - 5, top + 21, 1)
     else:
@@ -324,22 +368,35 @@ def _character(kind, pose="idle0", frame=0):
         R(cx + 5, top + 15, cx + 7, top + 22, 2)
         R(cx + 5, top + 21, cx + 8, top + 23, 5)          # 拳
         if pose == "block":
-            # 举盾格挡：盾立在前方
-            P([(cx + 6, top + 10), (cx + 12, top + 12), (cx + 12, top + 23),
-               (cx + 6, top + 25)], 3)
-            P([(cx + 7, top + 12), (cx + 11, top + 13), (cx + 11, top + 22),
-               (cx + 7, top + 23)], 5)
-            R(cx + 8, top + 16, cx + 10, top + 18, 4)
+            # 举盾格挡：大盾立在前方
+            P([(cx + 5, top + 9), (cx + 12, top + 11), (cx + 12, top + 24),
+               (cx + 5, top + 26)], 3)
+            P([(cx + 6, top + 11), (cx + 11, top + 12), (cx + 11, top + 23),
+               (cx + 6, top + 24)], 5)
+            P([(cx + 7, top + 14), (cx + 10, top + 15), (cx + 10, top + 20),
+               (cx + 7, top + 21)], 4)
+            R(cx + 7, top + 17, cx + 10, top + 18, 8)
         else:
-            # 短剑
-            R(cx + 7, top + 19, cx + 9, top + 20, 8)      # 护手
-            Ln(cx + 8, top + 18, cx + 9, top + 8, 5)      # 剑身
-            T([(cx + 8, top + 9), (cx + 10, top + 9), (cx + 9, top + 6)], 5)
-        # 左臂 + 圆盾（压低、缩小，别挡住胸甲分片线）
+            # 短剑：宽一点的剑身（3px）+ 亮刃边 + 护手 + 握柄 + 配重
+            R(cx + 6, top + 7, cx + 9, top + 16, 2)       # 剑身暗面
+            R(cx + 7, top + 7, cx + 9, top + 16, 5)       # 剑身
+            R(cx + 9, top + 8, cx + 9, top + 15, 11)      # 刃口高光
+            T([(cx + 6, top + 8), (cx + 9, top + 8), (cx + 8, top + 4)], 5)
+            R(cx + 5, top + 16, cx + 10, top + 17, 8)     # 护手
+            R(cx + 5, top + 16, cx + 5, top + 17, 11)
+            R(cx + 10, top + 16, cx + 10, top + 17, 11)
+            R(cx + 7, top + 17, cx + 9, top + 20, 8)      # 握柄
+            R(cx + 7, top + 18, cx + 7, top + 19, 4)
+            R(cx + 6, top + 20, cx + 10, top + 21, 5)     # 配重
+        # 左臂 + 圆盾（金属边 + 盾面 + 中心凸起 + 徽记）
         R(cx - 8, top + 15, cx - 6, top + 21, 2)
-        E(cx - 10, top + 20, 3, 4, 3)
-        E(cx - 10, top + 20, 1, 2, 5)
-        R(cx - 11, top + 19, cx - 9, top + 21, 4)
+        E(cx - 10, top + 19, 4, 5, 5)                     # 外圈金属
+        E(cx - 10, top + 19, 3, 4, 3)                     # 盾面
+        E(cx - 10, top + 18, 2, 2, 4)                     # 上部暗面
+        E(cx - 10, top + 19, 1, 1, 5)                     # 中心凸起
+        R(cx - 12, top + 18, cx - 11, top + 20, 4)        # 左侧暗边
+        R(cx - 11, top + 19, cx - 9, top + 19, 11)        # 横向徽记
+
     return g
 
 
@@ -560,8 +617,10 @@ _cache = {}
 POSES = ("idle0", "idle1", "run0", "run1", "run2", "run3", "jump", "fall", "block")
 
 
-def get_char(kind, pose="idle0"):
-    key = (kind, pose)
+def get_char(kind, pose="idle0", skin=None):
+    kind = "archer" if kind == "archer" else "guard"
+    skin = SKIN[kind] if skin is None else skin
+    key = (kind, pose, skin)
     s = _cache.get(key)
     if s is not None:
         return s
@@ -570,7 +629,7 @@ def get_char(kind, pose="idle0"):
     if pose.startswith("run"):
         base_pose = "run"
     g = _character(kind, base_pose, frame)
-    pal = PALETTES["archer" if kind == "archer" else "guard"]
+    pal = skin_palette(kind, skin)
     s = _render(g, pal)
     # 内部按 2 倍分辨率绘制，这里降采样回 36x52：
     # 轮廓不再是硬像素锯齿，观感接近手绘动画的柔边。
@@ -603,8 +662,9 @@ def get_monster(kind, frame=0):
 
 def prebuild():
     for kind in ("archer", "guard"):
-        for pose in POSES:
-            get_char(kind, pose)
+        for si in range(len(skin_list(kind))):
+            for pose in POSES:
+                get_char(kind, pose, si)
     for f in (0, 1):
         get_monster("ground", f)
         get_monster("fly", f)

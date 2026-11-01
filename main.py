@@ -73,7 +73,7 @@ RECORDS_FILE = os.path.join(app_dir(), "records.json")
 _FALLBACK_RECORDS = os.path.join(os.path.expanduser("~"), ".before_dusk_records.json")
 DEFAULT_SETTINGS = {
     "master": 0.85, "music": 0.42, "sfx": 0.72,
-    "fullscreen": False, "quality": 1, "show_fps": False,
+    "fullscreen": False, "quality": 1, "show_fps": False, "skins": [0, 0],
     "shake": 1.0, "flash": 1.0,      # 辅助选项：震屏/受击闪烁强度
     "ui_scale": 1.0,               # 界面缩放（0.9~1.4）
     "keys": {},                    # 自定义键位：必须在这里登记，否则 load_settings
@@ -118,6 +118,15 @@ def load_settings():
             else:
                 s[k] = v
         s["quality"] = max(0, min(2, int(s.get("quality", 1) or 0)))
+        # 外观索引：存档被写坏时（比如手改成字符串）也不能让选人界面炸掉
+        _sk = s.get("skins")
+        if not (isinstance(_sk, (list, tuple)) and len(_sk) == 2):
+            s["skins"] = [0, 0]
+        else:
+            try:
+                s["skins"] = [int(_sk[0]) % 3, int(_sk[1]) % 3]
+            except Exception:
+                s["skins"] = [0, 0]
     except Exception:
         pass
     return s
@@ -696,6 +705,13 @@ class App:
         # 高度 330 时底部"按 Enter 开始"按钮离卡片下沿只剩 10px，视觉上像被切
         self.card_rects = [pygame.Rect(cx - 430, 196, 400, 338),
                            pygame.Rect(cx + 30, 196, 400, 338)]
+        # 每个职业的外观索引（选人界面切换，写进 settings）
+        _sk = self.settings.get("skins") or [0, 0]
+        try:
+            self.skin_index = {0: int(_sk[0]) % 3, 1: int(_sk[1]) % 3}
+        except Exception:
+            self.skin_index = {0: 0, 1: 0}
+        self.skin_rects = {}
         # 卡片底边 = 196+330 = 526：难度行与词条行都必须排在它下面，
         # 否则会被两张卡压住（旧版难度行在 498，整行只剩中间一截露出来）
         self.char_back = pygame.Rect(24, 596, 150, 46)
@@ -978,6 +994,19 @@ class App:
                             self.challenges.add(cid)
                         audio.sfx("ui_hover", 0.8)
                         return
+                for pid, chips in getattr(self, "skin_rects", {}).items():
+                    for i, chip in enumerate(chips):
+                        if chip.collidepoint(ev.pos):
+                            self.skin_index[pid] = i
+                            sprites.SKIN["archer" if pid == 0 else "guard"] = i
+                            self.settings["skins"] = [self.skin_index[0],
+                                                      self.skin_index[1]]
+                            try:
+                                save_settings(self.settings)
+                            except Exception:
+                                pass
+                            audio.sfx("ui_hover", 0.9)
+                            return
                 for i, r in enumerate(self.card_rects):
                     if r.collidepoint(ev.pos):
                         audio.sfx("ui_click", 1.0)
@@ -1008,8 +1037,10 @@ class App:
         theme.text(s, ROLE_TAG[pid], (r.right - 24, r.y + 34), "small",
                    theme.alpha_color(col, 220), align="midright")
         # 角色立绘
-        base = sprites.get_char("archer" if pid == 0 else "guard", "idle0")
-        big = pygame.transform.scale(base, (base.get_width() * 3, base.get_height() * 3))
+        base = sprites.get_char("archer" if pid == 0 else "guard", "idle0",
+                                self.skin_index.get(pid, 0))
+        big = pygame.transform.scale(base, (int(base.get_width() * 3.4),
+                                            int(base.get_height() * 3.4)))
         bob = int(math.sin(self.char_t * 2.2 + pid) * 5)
         theme.glow_circle(s, (r.centerx, r.y + 148 + bob), 74,
                           col, 0.30 if selected else 0.14, 4)
@@ -1022,7 +1053,7 @@ class App:
             theme.text(s, "· " + line, (r.x + 26, r.y + 240 + i * 22), "small",
                        theme.alpha_color(theme.SLATE_200, 220))
         # 选中按钮
-        btn = pygame.Rect(r.x + 26, r.y + 288, r.w - 52, 32)
+        btn = pygame.Rect(r.x + 26, r.y + 280, r.w - 52, 30)
         if selected:
             ui._blend_panel(s, btn, theme.shade(col, -0.5), 235, 8)
             pygame.draw.rect(s, col, btn, 1, border_radius=8)
@@ -1032,6 +1063,30 @@ class App:
             pygame.draw.rect(s, theme.alpha_color(col, 80), btn, 1, border_radius=8)
             theme.text(s, "点击选择", btn.center, "body", theme.alpha_color(col, 200),
                        align="center", shadow=False)
+
+        # ---- 外观（皮肤）选择 ----
+        kind = "archer" if pid == 0 else "guard"
+        lst = sprites.skin_list(kind)
+        cur = self.skin_index.get(pid, 0)
+        sy = r.y + 318
+        self.skin_rects[pid] = []
+        theme.text(s, "外观", (r.x + 26, sy + 8), "tiny",
+                   theme.alpha_color(theme.SLATE_300, 210), align="midleft")
+        for i, sk in enumerate(lst):
+            chip = pygame.Rect(r.x + 64 + i * 36, sy, 32, 16)
+            on = (i == cur)
+            pal = sk["pal"]
+            pygame.draw.rect(s, pal[3], chip, border_radius=5)
+            pygame.draw.rect(s, pal[5], (chip.x + 4, chip.y + 4, 7, 8), border_radius=2)
+            pygame.draw.rect(s, pal[9], (chip.x + 14, chip.y + 4, 6, 8), border_radius=2)
+            if on:
+                pygame.draw.rect(s, theme.GOLD_LIGHT, chip, 2, border_radius=5)
+            else:
+                pygame.draw.rect(s, theme.alpha_color(theme.SLATE_400, 130),
+                                 chip, 1, border_radius=5)
+            self.skin_rects[pid].append(chip)
+        theme.text(s, lst[cur]["name"], (r.right - 24, sy + 8), "tiny",
+                   theme.alpha_color(theme.GOLD_LIGHT, 225), align="midright")
 
     # ==================================================================
     # 场景：设置
@@ -2759,6 +2814,12 @@ class App:
     # 流程控制
     # ==================================================================
     def start_single(self, pid):
+        # 把选人界面选的外观同步给精灵系统
+        try:
+            sprites.SKIN["archer"] = int(self.skin_index.get(0, 0)) % 3
+            sprites.SKIN["guard"] = int(self.skin_index.get(1, 0)) % 3
+        except Exception:
+            pass
         global engine, shared, server, client, guest, single_mode, player_pid, last_state
         try:
             guest = False
