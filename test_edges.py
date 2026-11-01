@@ -874,6 +874,39 @@ def test_event_feedback():
     check("引擎的每个事件都有反馈", not missing,
           "共 %d 种，无反馈：%s" % (len(kinds), missing))
 
+    # 客机首帧：还没收到状态包时必须能正常画"同步世界状态…"。
+    # 曾经这行少传了画布，theme.text 内部抛 ValueError，
+    # 而它的兜底分支自己也会崩 -> 客机刚进游戏每帧抛异常。
+    import queue as _q
+    old_g, old_s, old_c, old_q, old_ls = M.guest, M.single_mode, M.client, M.net_out, M.last_state
+    try:
+        M.guest, M.single_mode = True, False
+        M.client = None
+        M.net_out = _q.Queue()
+        M.last_state = None
+        ap = M.App()
+        ap._apply_scene("GAME")
+        ap.dt = core.TICK_DT
+        crashed = None
+        for _ in range(5):
+            try:
+                ap.scene_game([], pygame.key.get_pressed(), (640, 360))
+            except Exception as ex:
+                crashed = "%s: %s" % (type(ex).__name__, ex)
+                break
+        check("客机首帧（无状态包）不崩", crashed is None, crashed or "")
+    finally:
+        M.guest, M.single_mode, M.client, M.net_out, M.last_state = \
+            old_g, old_s, old_c, old_q, old_ls
+
+    # theme.text 参数传错时也不能把异常抛给调用方
+    bad = None
+    try:
+        theme.text("这不是画布", (1, 2), "title", (255, 255, 255))
+    except Exception as ex:
+        bad = "%s: %s" % (type(ex).__name__, ex)
+    check("theme.text 参数错误不抛异常", bad is None, bad or "")
+
     # 下蹲/穿板必须可重映射（原来硬编码 S/↓，改键后不跟随）
     check("下蹲动作在键位表里", "down" in M.KEYMAP, str(sorted(M.KEYMAP)))
     check("下蹲在可重映射列表里", "down" in M.REBIND_ORDER, str(M.REBIND_ORDER))

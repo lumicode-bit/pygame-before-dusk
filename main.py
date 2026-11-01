@@ -1047,6 +1047,9 @@ class App:
                         and r.collidepoint(ev.pos) and not on):
                     self.set_tab = i
                     tab = i
+                    # 切页时取消改键：否则"按任意键…"会留在看不见的那一页上，
+                    # 下一次按键被悄悄吞掉
+                    self.rebind_action = None
                     audio.sfx("ui_click", 0.7)
         ui.divider(s, x + 40, x + 720, y + 150)
 
@@ -1683,7 +1686,9 @@ class App:
 
         if st is None:
             self.draw_menu_background(self.dt)
-            theme.text("同步世界状态…", (SCREEN_W // 2, SCREEN_H // 2), "title",
+            # 少传了画布：字符串被当成 surf、坐标被当成文本，
+            # theme.text 内部抛 ValueError，客机首帧（还没收到状态包）每帧崩一次
+            theme.text(self.screen, "同步世界状态…", (SCREEN_W // 2, SCREEN_H // 2), "title",
                        theme.GOLD_LIGHT, align="center")
             return
         self.last_st = st

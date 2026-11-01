@@ -238,7 +238,12 @@ def text(surf, txt, pos, size="body", color=CREAM, align="left",
         surf.blit(img, r)
         return r
     except Exception:
-        return pygame.Rect(int(pos[0]), int(pos[1]), 0, 0)
+        # 兜底本身也可能崩（比如 pos 不是坐标）——那样会把异常抛给调用方，
+        # 一帧一次刷屏。这里保证"画不出来也绝不抛"。
+        try:
+            return pygame.Rect(int(pos[0]), int(pos[1]), 0, 0)
+        except Exception:
+            return pygame.Rect(0, 0, 0, 0)
 
 
 def text_width(txt, size="body", bold=False):
