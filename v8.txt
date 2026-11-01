@@ -1,7 +1,0 @@
-﻿缁?: (1936, 588, 2140, 410) 骞冲彴 66-69 = 2112-2240, rows 13-14 (416-448)
- t=0.60 鏉炬墜 -> 鏈?x=2058 y=608 on_ground=True inside=None
- t=0.75 鏉炬墜 -> 鏈?x=2089 y=640 on_ground=True inside=None
- t=0.85 鏉炬墜 -> 鏈?x=2109 y=704 on_ground=True inside=None
- t=0.92 鏉炬墜 -> 鏈?x=2124 y=416 on_ground=True inside=None
- t=0.97 鏉炬墜 -> 鏈?x=2134 y=416 on_ground=True inside=None
- t=1.00 鏉炬墜 -> 鏈?x=2140 y=416 on_ground=True inside=None

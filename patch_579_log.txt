@@ -1,1 +1,0 @@
-hammer_circle_rect(SKIP) | respawn_marker(SKIP) | respawn_vine(SKIP) | ai_targets | rescue_guard

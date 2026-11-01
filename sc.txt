@@ -1,8 +1,0 @@
-﻿pygame 2.6.1 (SDL 2.28.4, Python 3.13.14)
-Hello from the pygame community. https://www.pygame.org/contribute.html
-05_chest_C4: 绠卞瓙 gy 闄勮繎鐩告満 y=584
-05_chest_C5: 绠卞瓙 gy 闄勮繎鐩告満 y=584
-05_chest_C6: 绠卞瓙 gy 闄勮繎鐩告満 y=554
-05_chest_C7: 绠卞瓙 gy 闄勮繎鐩告満 y=426
-05_chest_C3: 绠卞瓙 gy 闄勮繎鐩告満 y=632
-ok

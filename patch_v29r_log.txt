@@ -1,1 +1,0 @@
-rift_call | rift_draw | monster_spawn_head | monster_spawn_body

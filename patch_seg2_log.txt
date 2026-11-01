@@ -1,1 +1,0 @@
-terrain_grass_seg | terrain_plate_seg | edge_call_seg | decor_call_seg | snow_cells | vines_green_stem | vines_green_leaf | vines_green_inner | vines_green_anchor | vines_green_arc | islands_gate_doc | islands_green_only | island_snow_palette

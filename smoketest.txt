@@ -1,4 +1,0 @@
-OK frames=180 tick=90 fps_ok=dummy music=[] sfx=22
-before_shutdown
-after_shutdown
-after_pygame_quit
