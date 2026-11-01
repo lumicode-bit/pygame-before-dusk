@@ -2238,15 +2238,19 @@ class WorldRenderer:
                     _bs = m.get("state", "walk")
                     _bt = float(m.get("state_t", 0.0))
                     if _bs == "slam":
+                        # 起跳举拳 -> 落拳砸地
                         _pose = "slam_up" if _bt < 0.35 else "slam_down"
                     elif _bs == "tele":
-                        _pose = "raise"
+                        # 蓄力：手臂分两段抬起（0.42s 的蓄力过程看得出来）
+                        _pose = "raise0" if _bt < 0.18 else "raise1"
                     elif _bs == "charge":
-                        _pose = "charge"
+                        # 冲锋：身体前倾 + 手臂前后小幅交替
+                        _pose = "charge1" if int(t * 10) % 2 else "charge0"
                     elif _bs == "recover":
                         _pose = "slam_down" if _bt < 0.16 else "walk0"
                     else:
-                        _pose = "walk1" if int(t * 4) % 2 else "walk0"
+                        # 走路：4 帧循环（重心起伏 + 手臂反向摆）
+                        _pose = "walk%d" % (int(t * 4) % 4)
                     img = sprites.get_monster("boss", _pose)
                     if m.get("dir", 1) < 0:
                         img = pygame.transform.flip(img, True, False)
