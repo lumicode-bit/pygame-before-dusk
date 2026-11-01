@@ -451,6 +451,7 @@ class WorldRenderer:
             pygame.draw.circle(self._portal_glow, (255, 210, 130, 10),
                                (110, 110), r)
         self._rune_ring = None       # 符文环贴图（懒建一次，之后只做旋转）
+        self._lava_cache = {}        # (kind,w,h) -> 静态渐变层
 
     # ---- 深度（到最近暴露顶面的距离）----
     def _depth(self, gx, gy, solid_fn):
@@ -561,6 +562,33 @@ class WorldRenderer:
                 v2.fill((6, 8, 18, va), special_flags=pygame.BLEND_RGBA_MULT)
                 surf.blit(v2, (0, 0))
 
+    def _lava_layer(self, w, h, kind):
+        """岩浆的三块静态渐变层（按尺寸缓存）。"""
+        key = (kind, int(w), int(h))
+        img = self._lava_cache.get(key)
+        if img is not None:
+            return img
+        img = pygame.Surface((int(w), int(h)), pygame.SRCALPHA)
+        if kind == "depth":
+            for i in range(0, int(h), 3):
+                k = i / max(1.0, float(h))
+                img.fill((36 + int(k * 40), 16 + int(k * 16), 18 + int(k * 10)),
+                         (0, i, int(w), 3))
+        elif kind == "body":
+            for i in range(int(h)):
+                k = i / max(1.0, float(h))
+                img.fill(theme.mix((255, 196, 88), (176, 34, 18), k ** 0.6),
+                         (0, i, int(w), 1))
+        else:  # glow
+            for i in range(int(h)):
+                f = 0.34 * (i / max(1.0, float(h - 1))) ** 1.7
+                img.fill((int(255 * f), int(120 * f), int(48 * f)),
+                         (0, i, int(w), 1))
+        if len(self._lava_cache) > 24:
+            self._lava_cache.clear()
+        self._lava_cache[key] = img
+        return img
+
     def _bloom(self, surf, strength=0.4, thresh=96):
         """廉价泛光：缩小 -> 减掉中灰只留高光 -> 放大叠回。
 
@@ -568,12 +596,14 @@ class WorldRenderer:
         """
         try:
             w, h = surf.get_size()
-            sw, sh = max(1, w // 3), max(1, h // 3)
+            # 1/4 降采样 + 放大用最近邻：smoothscale 放大会吃掉 4~5ms，
+            # 而泛光本来就是模糊的，最近邻放大看不出来，还快一倍多。
+            sw, sh = max(1, w // 4), max(1, h // 4)
             small = pygame.transform.smoothscale(surf, (sw, sh))
             dark = pygame.Surface((sw, sh))
             dark.fill((thresh, thresh, thresh))
             small.blit(dark, (0, 0), special_flags=pygame.BLEND_RGB_SUB)
-            big = pygame.transform.smoothscale(small, (w, h))
+            big = pygame.transform.scale(small, (w, h))
             f = int(255 * max(0.0, min(1.0, strength)))
             if f < 255:
                 big.fill((f, f, f), special_flags=pygame.BLEND_RGB_MULT)
@@ -775,23 +805,17 @@ class WorldRenderer:
         h = min(ly1 - cam_y, surf.get_height()) - sy0
         if h <= 0:
             return
-        # 深渊底色
+        # 深渊底色 / 岩浆本体 / 上方热辉：三块都是静态渐变，
+        # 按尺寸缓存起来，每帧只做 blit。原来每帧现画三整块（512×96 逐行
+        # draw.line），光岩浆就吃掉好几毫秒。
         if sy0 + h > 0:
-            depth = pygame.Surface((w, h), pygame.SRCALPHA)
-            for i in range(0, h, 3):
-                k = i / max(1, h)
-                depth.fill((36 + int(k * 40), 16 + int(k * 16), 18 + int(k * 10)),
-                           (0, i, w, 3))
+            depth = self._lava_layer(w, h, "depth")
             surf.blit(depth, (sx0, max(0, sy0)))
         # 岩浆本体
         surf_rect = pygame.Rect(sx0, max(0, sy0), w, max(0, min(h, 96)))
         if surf_rect.h > 0:
-            lava = pygame.Surface((w, surf_rect.h), pygame.SRCALPHA)
-            for i in range(surf_rect.h):
-                k = i / max(1, surf_rect.h)
-                col = theme.mix((255, 196, 88), (176, 34, 18), k ** 0.6)
-                pygame.draw.line(lava, col, (0, i), (w, i))
-            surf.blit(lava, (surf_rect.x, surf_rect.y))
+            surf.blit(self._lava_layer(w, surf_rect.h, "body"),
+                      (surf_rect.x, surf_rect.y))
         # 波峰
         for i in range(w):
             wx = sx0 + i
@@ -807,15 +831,19 @@ class WorldRenderer:
             by = sy0 + 8 + (k * 11) % 60
             r = 2 + (k % 3)
             pygame.draw.circle(surf, (255, 214, 130), (bx - cam_x, by), r, 1)
-        # 上方热辉
         # 上方热辉（靠近岩浆表面最亮，向上渐隐；两侧多留 40px 避免硬竖边）
-        gw = w + 80
-        gh = 150
-        glow = pygame.Surface((gw, gh), pygame.SRCALPHA)
-        for i in range(gh):
-            f = 0.34 * (i / float(gh - 1)) ** 1.7
-            pygame.draw.line(glow, (int(255 * f), int(120 * f), int(48 * f)), (0, i), (gw, i))
-        surf.blit(glow, (sx0 - 40, sy0 - gh), special_flags=pygame.BLEND_RGBA_ADD)
+        gw, gh = w + 80, 150
+        surf.blit(self._lava_layer(gw, gh, "glow"), (sx0 - 40, sy0 - gh),
+                  special_flags=pygame.BLEND_RGBA_ADD)
+        # 上升余烬：几粒暖光随热流上浮
+        for k in range(9):
+            ex = lx0 + ((k * 211 + int(t * 16)) % max(1, w)) - cam_x
+            ph = (t * 0.30 + k * 0.137) % 1.0
+            ey = sy0 - ph * 120
+            a = int(150 * (1.0 - ph) ** 1.4)
+            if a > 8:
+                pygame.draw.circle(surf, (255, 206, 140, a),
+                                   (int(ex), int(ey)), 1 + int(2 * (1.0 - ph)))
 
     # ==================================================================
     # 深坑
@@ -1466,12 +1494,23 @@ class WorldRenderer:
     # 传送门
     # ==================================================================
     def _portal_ring(self, size=160):
-        """预渲染符文环：细环 + 24 道刻度 + 4 个大符点。"""
-        img = pygame.Surface((size, size), pygame.SRCALPHA)
+        """预渲染符文环（预乘色 + 黑底，专供 BLEND_RGB_ADD 叠加）。
+
+        注意不能用 BLEND_RGBA_ADD：pygame 的 RGBA_ADD 会把 RGB **整份**加上去、
+        完全忽略 alpha，于是半透明的描边会被当成纯白叠加 —— 传送门内芯
+        会糊成一大团死白。
+        """
+        img = pygame.Surface((size, size))
+        img.fill((0, 0, 0))
         c = size // 2
         r = c - 7
-        pygame.draw.circle(img, (255, 236, 190, 110), (c, c), r, 1)
-        pygame.draw.circle(img, (255, 206, 140, 55), (c, c), r - 6, 1)
+
+        def pm(col, a):
+            k = a / 255.0
+            return (int(col[0] * k), int(col[1] * k), int(col[2] * k))
+
+        pygame.draw.circle(img, pm((255, 236, 190), 120), (c, c), r, 1)
+        pygame.draw.circle(img, pm((255, 206, 140), 60), (c, c), r - 6, 1)
         n = 24
         for i in range(n):
             a = i * 2 * math.pi / n
@@ -1480,10 +1519,10 @@ class WorldRenderer:
             y1 = c + math.sin(a) * (r - 3)
             x2 = c + math.cos(a) * inner
             y2 = c + math.sin(a) * inner
-            pygame.draw.line(img, (255, 246, 214, 175), (x1, y1), (x2, y2), 2)
+            pygame.draw.line(img, pm((255, 246, 214), 185), (x1, y1), (x2, y2), 2)
         for i in range(4):
             a = i * math.pi / 2 + math.pi / 4
-            pygame.draw.circle(img, (255, 250, 228, 230),
+            pygame.draw.circle(img, pm((255, 250, 228), 235),
                                (int(c + math.cos(a) * (r - 20)),
                                 int(c + math.sin(a) * (r - 20))), 3)
         return img
@@ -1539,7 +1578,7 @@ class WorldRenderer:
                 ring = pygame.transform.smoothscale(
                     ring, (int(ring.get_width() * 0.92), int(ring.get_height() * 1.10)))
                 surf.blit(ring, ring.get_rect(center=(cx, cy - 8)),
-                          special_flags=pygame.BLEND_RGBA_ADD)
+                          special_flags=pygame.BLEND_RGB_ADD)
             except Exception:
                 pass
             for i in range(6):
@@ -1558,9 +1597,8 @@ class WorldRenderer:
         theme.glow_circle(surf, (cx, base_y - 6), 96, (255, 186, 110), 0.22 + 0.06 * breath, 3)
         theme.glow_circle(surf, (cx, base_y - 6), 58, (255, 224, 170), 0.24, 2)
         # 2) 大范围外辉（三层不同半径，形成柔和的衰减）
-        theme.glow_circle(surf, (cx, cy), 132, (255, 168, 96), 0.11 + 0.04 * breath, 3)
-        theme.glow_circle(surf, (cx, cy), 92, (255, 196, 128), 0.16, 3)
-        theme.glow_circle(surf, (cx, cy), 58, (255, 232, 190), 0.18, 2)
+        theme.glow_circle(surf, (cx, cy), 138, (255, 150, 80), 0.10 + 0.035 * breath, 3)
+        theme.glow_circle(surf, (cx, cy), 96, (255, 176, 110), 0.09, 3)
 
         # 3) 石制门框：外框 + 内发光边
         pygame.draw.ellipse(surf, (62, 56, 72), (cx - 60, cy - 74, 120, 148), 12)
@@ -1596,24 +1634,27 @@ class WorldRenderer:
                     ring, (int(ring.get_width() * 0.86),
                            int(ring.get_height() * 1.06)))
                 # 先按环色调乘一遍，三圈才有颜色区分（否则叠出来全是白的）
-                ring.fill((col[0], col[1], col[2], 255),
-                          special_flags=pygame.BLEND_RGBA_MULT)
+                ring.fill((col[0], col[1], col[2]),
+                          special_flags=pygame.BLEND_RGB_MULT)
                 surf.blit(ring, ring.get_rect(center=(cx, cy)),
-                          special_flags=pygame.BLEND_RGBA_ADD)
+                          special_flags=pygame.BLEND_RGB_ADD)
             except Exception:
                 pass
 
         # 6) 内芯：椭圆柔光（不是矩形！否则会变成一块白板）
-        core_s = pygame.Surface((76, 108), pygame.SRCALPHA)
+        # 内芯压得很低：它下面还叠着三层辉光 + 符文环，再往上加就过曝成
+        # 一团纯白，站在里面的人也会被吃掉。
+        core_s = pygame.Surface((76, 108))
+        core_s.fill((0, 0, 0))
         for i in range(108):
             f = 1.0 - abs(i - 54) / 54.0
             half = int(37 * (f ** 0.55))
-            aa = int((32 + 14 * breath) * (f ** 1.35))
+            aa = int((70 + 26 * breath) * (f ** 1.5))
             if half > 0 and aa > 0:
-                pygame.draw.line(core_s, (255, 238, 208, aa), (38 - half, i),
-                                 (38 + half, i))
-        surf.blit(core_s, (cx - 38, cy - 54), special_flags=pygame.BLEND_RGBA_ADD)
-        theme.glow_circle(surf, (cx, cy), 34, (255, 236, 198), 0.13 + 0.05 * breath, 2)
+                pygame.draw.line(core_s, (aa, int(aa * 0.84), int(aa * 0.62)),
+                                 (38 - half, i), (38 + half, i))
+        surf.blit(core_s, (cx - 38, cy - 54), special_flags=pygame.BLEND_RGB_ADD)
+        theme.glow_circle(surf, (cx, cy), 30, (255, 210, 150), 0.07 + 0.03 * breath, 2)
 
         # 7) 上升光尘
         for i in range(14):

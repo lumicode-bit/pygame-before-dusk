@@ -36,7 +36,7 @@ import ai_nav
 # 常量
 # --------------------------------------------------------------------------
 TILE = 32
-MAP_W = 152                # 终章扩建：112 -> 152（新增"熔炉长廊"40 格 = 1280px）
+MAP_W = 172                # 终章扩建：112 -> 152 -> 172（祭坛前庭 +20 格 = 640px）
 MAP_H = 28                 # 加高地图：容纳深坑（掉入后跳不出来）
 WORLD_W = MAP_W * TILE
 WORLD_H = MAP_H * TILE
@@ -83,7 +83,7 @@ PLAYER_START = {
     1: (10 * TILE + 12, 19 * TILE),
 }
 # 终点传送门（熔炉长廊尽头的祭坛高台中央）
-PORTAL_RECT = (142 * TILE, 13 * TILE, 5 * TILE, 4 * TILE)
+PORTAL_RECT = (162 * TILE, 13 * TILE, 5 * TILE, 4 * TILE)
 # 熔炉长廊（第三幕）范围：地面连续、无断崖，靠摆锤 / 地刺 / 落石制造压力
 FORGE_LEFT = 94
 SCORCH_LEFT = 56
@@ -153,7 +153,8 @@ TOWER_GUARD_R = 150.0
 VINE_SPEED = 300.0
 
 # ---- 双人机关（必须两人同时站住）----                            # 岩壁区起点：从这里到熔炉入口是焦土/玄武岩
-FORGE_RIGHT = 151
+FORGE_RIGHT = 171
+ALTAR_LEFT = 159                  # 祭坛石台左缘（Boss 活动范围 / 传送门所在高台）
 
 # 压力机关 -> 生成的浮空跳板配置（跳板为单边平台，带弹跳）
 # 仅保留 A 机关（跨 A 断崖用）；B 机关随旧地图布局废弃
@@ -216,11 +217,12 @@ HAMMER_CFG = [
     {"id": "H1", "cx": 113, "cy": 12, "len": 150, "r": 26, "spd": 1.55, "phase": 0.0},
     {"id": "H2", "cx": 121, "cy": 12, "len": 150, "r": 26, "spd": 1.75, "phase": 2.1},
     {"id": "H3", "cx": 133, "cy": 11, "len": 176, "r": 30, "spd": 1.45, "phase": 4.0},
+    {"id": "H4", "cx": 142, "cy": 12, "len": 168, "r": 28, "spd": 1.6, "phase": 1.2},
 ]
 HAMMER_DMG = 14
 
 # 地刺带：贴地尖刺，踩到扣血并向上弹开（不致死，用于消耗）
-SPIKE_STRIPS = [(110, 111), (126, 127), (134, 135)]
+SPIKE_STRIPS = [(110, 111), (126, 127), (134, 135), (144, 145), (152, 153)]
 BRAMBLE_IDX = (1, 2)           # 红黑荆棘条：视觉是"活物"，行为也和金属刺区分
 SPIKE_STRIP_H = 12
 SPIKE_STRIP_DMG = 9
@@ -229,13 +231,13 @@ SPIKE_STRIP_DMG = 9
 FALL_ROCK_CFG = [
     {"id": "F1", "cx": 117, "y0": 5 * TILE},
     {"id": "F2", "cx": 130, "y0": 4 * TILE},
-    {"id": "F3", "cx": 145, "y0": 5 * TILE},
+    {"id": "F3", "cx": 154, "y0": 5 * TILE},
 ]
 FALL_ROCK_DMG = 18
 FALL_ROCK_TRIGGER = 108.0
 
 # 检查点（触碰即激活，阵亡后在此复活）
-CHECKPOINT_COLS = [46, 86, 108, 138]
+CHECKPOINT_COLS = [46, 86, 108, 150]
 # 补给箱（靠近按 E 开启，恢复生命）
 CHEST_CFG = [
     {"id": "C1", "cx": 34, "heal": 28, "cy": 19},
@@ -246,6 +248,7 @@ CHEST_CFG = [
     {"id": "C6", "cx": 101, "heal": 30, "cy": 15},     # 瞭望塔一层
     {"id": "C7", "cx": 100, "heal": 32, "cy": 11},     # 瞭望塔二层
     {"id": "C8", "cx": 104, "heal": 36, "cy": 11},     # 共鸣门后隔间
+    {"id": "C9", "cx": 149, "heal": 38, "cy": 19},     # 祭坛前庭（新增段）
 ]
 CHEST_RANGE = 60.0
 
@@ -435,11 +438,11 @@ def build_static_grid():
     # 石头底下（机关在 row 19，上面 rows 17-18 是实心），玩家根本踩不上去，
     # 双人闸门永远打不开 -> 熔炉中段卡死。脱困逻辑修好后这个冲突才暴露出来。
     fill(116, 17, 117, 18, 'G')
-    # 终点前的两级台阶，便于走上祭坛
-    fill(136, 17, 138, 18, 'G')
+    # 终点前的两级台阶，便于走上祭坛（祭坛右移 20 格后同步右移）
+    fill(156, 17, 158, 18, 'G')
     # 祭坛必须铺到地图最右一列（151）：原来只到 150，col 151 缺了 4 格高的台面，
     # Boss 冲锋把玩家推到最右侧时会从 480 直接掉到 608，4 格高爬不回来 -> 卡死
-    fill(139, 15, FORGE_RIGHT, 18, 'G')
+    fill(ALTAR_LEFT, 15, FORGE_RIGHT, 18, 'G')
     # ---- 上层结构：森林断桥 + 岩浆上方捷径（配合藤蔓滑索形成多层路线）----
     for _x0, _x1 in ((10, 13), (17, 20), (24, 27), (31, 33)):
         fill(_x0, 13, _x1, 14, 'G')
@@ -467,8 +470,11 @@ def build_static_grid():
     # 压力机关（A断崖前）
     g[19][4] = 'Q'
     g[19][5] = 'Q'
-    # 传送门视觉区(不可碰撞)
-    for cx in range(142, 147):
+    # 传送门视觉区(不可碰撞) —— 必须由 PORTAL_RECT 推导，
+    # 否则地图拉长后装饰格还留在老位置，玩家会看到"传送门在空地上"
+    _pc0 = PORTAL_RECT[0] // TILE
+    _pc1 = _pc0 + PORTAL_RECT[2] // TILE
+    for cx in range(_pc0, _pc1):
         g[13][cx] = 'O'
         g[14][cx] = 'O'
     # 出生点标记(仅装饰)
@@ -2243,13 +2249,13 @@ class GameEngine:
         try:
             # Boss 也走裂隙出场：更大的黑洞 + 更长的预警，才有"守卫苏醒"的压迫感
             self.rifts.append({
-                "x": float(144 * TILE), "y": float(15 * TILE - 6),
+                "x": float(165 * TILE), "y": float(15 * TILE - 6),
                 "kind": "boss", "elite": False, "t": 0.0,
                 "delay": 1.9, "size": 62.0, "tier": 3,
             })
             self.boss_spawned = True
             self.msg = "熔炉守卫苏醒！红光蓄力后会直线冲锋，用冲刺躲开！"
-            self.events.append(("boss_spawn", 144 * TILE, 15 * TILE - 50))
+            self.events.append(("boss_spawn", 165 * TILE, 15 * TILE - 56))
         except Exception as e:
             write_log("Boss 生成异常: %r" % (e,))
 
@@ -2439,7 +2445,13 @@ class GameEngine:
                         if m.kind == "boss":
                             # 关在祭坛石台上：它不会跳台阶，一旦冲出平台就会卡在台阶侧面，
                             # 玩家只看到血条不见人。这里把它限制在台面范围内。
-                            m.x = max(139 * TILE + 36, min(150 * TILE - 36, m.x))
+                            # 必须由常量推导 —— 原来写死 139/150/15*TILE，地图拉长后
+                            # 守卫会被夹到台下的地面段、y 又被拉回台面高度，
+                            # 表现成"悬空不停下落再瞬移回原位"。
+                            # 注意也**不能**把它放到前庭地面：玩家爬上祭坛它就够不到了，
+                            # 站在台上打不着也下不来，Boss 永远打不死。
+                            m.x = max(ALTAR_LEFT * TILE + 36,
+                                      min((FORGE_RIGHT + 1) * TILE - 36, m.x))
                             if m.y > 19 * TILE - 40:
                                 m.y = 15 * TILE
                                 m.vy = 0.0

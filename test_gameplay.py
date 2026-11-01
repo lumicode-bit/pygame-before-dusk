@@ -131,21 +131,32 @@ check("两人同站传送门 -> 通关", e.win, "win_t=%.2f" % e.win_t)
 print("== 8. 地图完整性与可达性 ==")
 g = core.build_static_grid()
 check("熔炉长廊地面连续", all(g[19][x] != ' ' for x in range(core.FORGE_LEFT, core.FORGE_RIGHT + 1)))
-check("终点祭坛铺到地图最右列", all(g[15][x] == 'G' for x in range(139, core.MAP_W)),
+_altar0 = core.PORTAL_RECT[0] // T - 3          # 祭坛左缘（随 PORTAL_RECT 走）
+check("终点祭坛铺到地图最右列", all(g[15][x] == 'G' for x in range(_altar0, core.MAP_W)),
       "col139-151")
-check("传送门在祭坛上方", g[13][142] == 'O')
+check("传送门在祭坛上方", g[13][core.PORTAL_RECT[0] // T] == 'O')
 check("地图长度 > 150 格", core.MAP_W >= 150, str(core.MAP_W))
 check("岩石墙 8 格", len([1 for k, v in e.rocks.items()]) == 8)
+# 地图拉长后最容易漏的就是"装饰格 / 检查点还留在老坐标"
+_pcol = core.PORTAL_RECT[0] // T
+check("传送门装饰格跟着 PORTAL_RECT 走",
+      g[13][_pcol] == 'O' and g[14][_pcol + 4] == 'O', "col=%d" % _pcol)
+check("最后一个检查点离祭坛不贴脸",
+      _pcol - core.CHECKPOINT_COLS[-1] >= 8,
+      "间隔 %d 格" % (_pcol - core.CHECKPOINT_COLS[-1]))
+check("Boss 活动范围覆盖出生点",
+      core.ALTAR_LEFT * T + 36 <= 165 * T <= (core.FORGE_RIGHT + 1) * T - 36)
 
 print("== 9. 熔炉守卫（Boss）==")
 e = fresh()
 e.wave = 2
 e.wave2_spawned = True
 e.wave1_spawned = True          # 模拟第一波已过
-e.players[0]["x"] = core.BOSS_TRIGGER_X + 30
-e.players[0]["y"] = 19 * T
-e.players[1]["x"] = core.BOSS_TRIGGER_X - 70
-e.players[1]["y"] = 19 * T
+# Boss 战场在祭坛高台上（地图拉长后祭坛在 ALTAR_LEFT..FORGE_RIGHT）
+e.players[0]["x"] = (core.ALTAR_LEFT + 2) * T
+e.players[0]["y"] = 15 * T
+e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
+e.players[1]["y"] = 15 * T
 step(e, 3)
 flush_rifts(e)
 boss = next((m for m in e.monsters if m.kind == "boss"), None)
@@ -213,10 +224,11 @@ e = fresh()
 e.wave = 2
 e.wave2_spawned = True
 e.wave1_spawned = True          # 模拟第一波已过
-e.players[0]["x"] = core.BOSS_TRIGGER_X + 30
-e.players[0]["y"] = 19 * T
-e.players[1]["x"] = core.BOSS_TRIGGER_X - 70
-e.players[1]["y"] = 19 * T
+# Boss 战场在祭坛高台上（地图拉长后祭坛在 ALTAR_LEFT..FORGE_RIGHT）
+e.players[0]["x"] = (core.ALTAR_LEFT + 2) * T
+e.players[0]["y"] = 15 * T
+e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
+e.players[1]["y"] = 15 * T
 step(e, 3)
 flush_rifts(e)
 boss = next((m for m in e.monsters if m.kind == "boss"), None)
@@ -271,7 +283,8 @@ for _ in range(60):
 check("弓箭能打掉术士血量", c.hp < 3, "hp=%.0f" % c.hp)
 
 g = core.build_static_grid()
-check("终点高台下方无夹缝", all(g[18][x] == 'G' for x in range(139, 151)))
+check("终点高台下方无夹缝", all(g[18][x] == 'G'
+                              for x in range(_altar0, core.FORGE_RIGHT + 1)))
 
 e = fresh()
 e.players[0]["y"] = 19 * T
@@ -300,11 +313,12 @@ _random.seed(4242)          # Boss 行为带随机（二连冲锋），固定种
 e = fresh()
 e.wave1_spawned = True
 e.wave = 3
-b = core.Monster(1, "boss", 143 * T, 15 * T)
+# Boss 战场是祭坛高台（ALTAR_LEFT..FORGE_RIGHT），位置全部由常量推导
+b = core.Monster(1, "boss", (core.ALTAR_LEFT + 6) * T, 15 * T)
 e.monsters.append(b)
-e.players[0]["x"] = 142 * T
+e.players[0]["x"] = (core.ALTAR_LEFT + 2) * T
 e.players[0]["y"] = 15 * T
-e.players[1]["x"] = 141 * T
+e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
 e.players[1]["y"] = 15 * T
 # 观测砸地机制时让两人无敌，否则会被 Boss 打死回起点、距离拉远就测不到了
 e.players[0]["invuln"] = 9999
