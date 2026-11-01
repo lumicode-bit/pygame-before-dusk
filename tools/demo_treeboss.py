@@ -10,6 +10,7 @@ v2：分辨率提到 240×300、色板 42 色，重点补三件事：
     python tools/demo_treeboss.py
 产物写到 shots/demo_*.png。
 """
+import math
 import os
 import sys
 
@@ -125,55 +126,151 @@ def build_tree():
         ell(g, sx, sy, sr, sr - 3, 35)
         ell(g, sx - 3, sy - 3, sr - 5, sr - 6, 36)
 
-    # ============ 树桩轮廓（参数化 + 树瘤） ============
-    KNOTS = ((140, 11, 16), (186, 15, 20), (232, 10, 14))
+    # ============ 树桩：六层"裙边"堆叠（不是一根直筒）============
+    # 参考图的树精是**一层层树皮往外翻**堆起来的，每层下缘比上缘宽，
+    # 层与层错位叠压 —— 这是它不像水桶的关键。
+    LAYERS = [
+        # (y_top, y_bot, half_top, half_bot, x_off, 树皮色)
+        # 只有 4 层，每层 50~60px 高；下缘比上缘宽 22px -> 明显的"盘沿"台阶
+        (228, 292, 66, 96, 0, 4),
+        (176, 234, 54, 80, -5, 3),
+        (128, 182, 44, 66, 4, 5),
+        (88, 134, 34, 52, -2, 3),
+    ]
 
-    def half_at(y):
-        t = (y - 96) / 188.0
-        half = 50 + t * 22.0
-        for (by, bw, bh) in KNOTS:
-            d = abs(y - by)
-            if d < bh:
-                half += bw * (1.0 - d / float(bh)) ** 0.75
-        return half
+    def layer_pts(yt, yb, ht, hb, xo, step=4):
+        pl, pr = [], []
+        for y in range(yt, yb + 1, step):
+            t = (y - yt) / float(max(1, yb - yt))
+            h = ht + (hb - ht) * t
+            jag = (7, -5, 8, -4, 6, -8, 4, -6)[(y // step) % 8]
+            pl.append((CX + xo - h + jag, y))
+            pr.append((CX + xo + h - jag, y))
+        return pl, pr
 
-    left, right = [], []
-    for y in range(96, 284, 4):
-        half = half_at(y)
-        jag = (3, -2, 4, -3, 2, -4, 3, -1)[(y // 4) % 8]
-        left.append((CX - half + jag, y))
-        right.append((CX + half - jag, y))
-    poly(g, left + right[::-1], 4)
+    # 从下往上画，上层压住下层，形成层叠
+    for (yt, yb, ht, hb, xo, col) in LAYERS:
+        pl, pr = layer_pts(yt, yb, ht, hb, xo)
+        poly(g, pl + pr[::-1], col)
+        # 边缘树瘤：在两侧随机鼓出 3~5 个小半圆，打破"梯形直边"
+        for side in (-1, 1):
+            for _ in range(3 + int(rng.rand() * 3)):
+                by = int(yt + rng.rand() * (yb - yt))
+                t = (by - yt) / float(max(1, yb - yt))
+                bh = ht + (hb - ht) * t
+                bx = int(CX + xo + side * (bh - 3))
+                br = 4 + int(rng.rand() * 7)
+                ell(g, bx, by, br, br - 1, col)
+                ell(g, bx, by - 1, max(1, br - 2), max(1, br - 3),
+                    col + 1 if col < 6 else col)
+        # 下缘往外翻的"裙边"阴影：沿底部再描 4px 深色
+        for k in range(4):
+            yy = yb - k
+            t = (yy - yt) / float(max(1, yb - yt))
+            h = ht + (hb - ht) * t
+            line(g, int(CX + xo - h) + 1, yy, int(CX + xo + h) - 1, yy,
+                 1 if k < 2 else 2, 1)
+        # 上缘亮边
+        for k in range(2):
+            yy = yt + k
+            t = (yy - yt) / float(max(1, yb - yt))
+            h = ht + (hb - ht) * t
+            line(g, int(CX + xo - h) + 2, yy, int(CX + xo + h) - 2, yy,
+                 6 if k == 0 else 5, 1)
 
-    # ============ 体积感：左亮右暗的宽色带 ============
-    for y in range(96, 284, 2):
-        half = half_at(y)
-        line(g, int(CX - half) + 2, y, int(CX - half) + 16, y, 5)
-        line(g, int(CX - half) + 17, y, int(CX - half) + 30, y, 4)
-        line(g, int(CX + half) - 26, y, int(CX + half) - 12, y, 3)
-        line(g, int(CX + half) - 11, y, int(CX + half) - 1, y, 2)
+    # ============ 体积感：每层左侧受光、右侧背光 ============
+    for (yt, yb, ht, hb, xo, col) in LAYERS:
+        for y in range(yt, yb + 1, 2):
+            t = (y - yt) / float(max(1, yb - yt))
+            h = ht + (hb - ht) * t
+            xl, xr = int(CX + xo - h), int(CX + xo + h)
+            line(g, xl + 3, y, xl + 14, y, 5)
+            line(g, xr - 22, y, xr - 10, y, 3)
+            line(g, xr - 9, y, xr - 1, y, 2)
 
-    # ============ 树皮纤维（240 条，6 种深浅） ============
-    for _ in range(240):
-        x = 44 + int(rng.rand() * 152)
-        y0 = 100 + int(rng.rand() * 176)
-        ln = 5 + int(rng.rand() * 20)
-        col = (1, 2, 2, 3, 5, 6)[int(rng.rand() * 6)]
-        line(g, x, y0, x + rng.randint(-1, 1), min(282, y0 + ln), col)
+    # ============ 树皮纤维（每层 44 条）============
+    for (yt, yb, ht, hb, xo, col) in LAYERS:
+        for _ in range(44):
+            t0 = rng.rand()
+            y0 = int(yt + t0 * (yb - yt) * 0.7)
+            h0 = ht + (hb - ht) * t0
+            x = int(CX + xo + (rng.rand() * 2 - 1) * h0 * 0.9)
+            ln = 4 + int(rng.rand() * 14)
+            c = (1, 2, 2, 3, 5, 6)[int(rng.rand() * 6)]
+            line(g, x, y0, x + rng.randint(-1, 1), min(yb, y0 + ln), c)
 
-    # ============ 横向分缝（5 道）+ 缝口苔藓 ============
-    for yy in (118, 152, 190, 226, 258):
-        half = half_at(yy)
-        line(g, int(CX - half) + 1, yy, int(CX + half) - 1, yy, 1, 3)
-        line(g, int(CX - half) + 1, yy + 1, int(CX + half) - 1, yy + 1, 5, 1)
-        for _ in range(7):
-            mx = int(CX - half + 8 + rng.rand() * (half * 2 - 16))
-            ell(g, mx, yy + rng.randint(-2, 2), rng.randint(3, 6),
-                rng.randint(2, 4), 10 if rng.rand() < 0.5 else 9)
+    BARK = (g > 0) & (g < 17)
+
+    def in_bark(x, y):
+        return 0 <= y < H and 0 <= x < W and BARK[y, x]
+
+    # ============ 层缝苔藓：连续多边形带（不是碎椭圆堆）============
+    for li, (yt, yb, ht, hb, xo, col) in enumerate(LAYERS):
+        span = hb * 2 - 16
+        x0 = CX + xo - hb + 8
+        N = 26
+        top_pts, bot_pts = [], []
+        for i in range(N + 1):
+            t = i / float(N)
+            xx = x0 + span * t
+            top_pts.append((xx, yb - 7 + math.sin(i * 1.9 + li) * 2.2))
+            drop = 7 + math.sin(i * 1.13 + li * 2.1) * 4 + (i % 3) * 2
+            bot_pts.append((xx, yb + drop))
+        poly(g, top_pts + bot_pts[::-1], 9)
+        # 亮面：整条带的上半部分
+        mid = [(x, (a1 + b1) * 0.5 - 1)
+               for (x, a1), (_, b1) in zip(top_pts, bot_pts)]
+        poly(g, top_pts + mid[::-1], 11)
+        # 顶部高光点
+        for i in range(0, N + 1, 2):
+            x, y = top_pts[i]
+            rect(g, int(x), int(y), int(x) + 1, int(y) + 1, 13)
+        # 垂下来的一两缕
+        for i in range(2, N, 5):
+            x, y = bot_pts[i]
+            ell(g, int(x), int(y) + 3, 2, 3, 9)
+            ell(g, int(x), int(y) + 8, 1, 2, 10)
+
+    for (yt, yb, ht, hb, xo, col) in LAYERS:
+        # 等距成排（步长 13px）—— 随机会变成"绿色噪声"，等距才有设计感
+        span = hb * 2 - 20
+        n = max(4, int(span / 13))
+        for i in range(n + 1):
+            mx = int(CX + xo - hb + 10 + span * (i / float(n)))
+            if not in_bark(mx, yb - 2):
+                continue
+            r0 = 5 if i % 2 == 0 else 4
+            ell(g, mx, yb - 2, r0, r0 - 2, 10)
+            ell(g, mx - 1, yb - 3, r0 - 2, r0 - 3, 11)
+            drop = 2 + (i % 3)
+            dy = 0
+            for k in range(drop):
+                dy += 5 + (i + k) % 3
+                r = max(1, r0 - 1 - k)
+                ell(g, mx, yb + dy, r, max(1, r - 1), 10 if k == 0 else 9)
+                if k == 0:
+                    ell(g, mx, yb + dy - 1, max(1, r - 2), 1, 12)
+
+    # ============ 顶部伸出的断枝（打破平顶）============
+    for (bx, by, ex, ey, w) in ((78, 96, 52, 74, 4), (162, 98, 190, 76, 4),
+                                (100, 92, 88, 66, 3), (140, 94, 154, 64, 3)):
+        line(g, bx, by, ex, ey, 2, w)
+        line(g, bx, by, ex, ey, 4, 1)
+        mx, my = (bx + ex) // 2, (by + ey) // 2
+        line(g, mx, my, mx + 8, my - 10, 3, 2)
+
+    # ============ 底部散开的根须 ============
+    for (rx, ry, ex, ey) in ((58, 276, 22, 292), (86, 282, 66, 296),
+                             (150, 282, 178, 296), (176, 276, 214, 290),
+                             (120, 286, 120, 298)):
+        line(g, rx, ry, ex, ey, 2, 3)
+        line(g, (rx + ex) // 2, (ry + ey) // 2,
+             (rx + ex) // 2 + 6, ey + 2, 3, 2)
+
 
     # ============ 树洞（嘴）============
-    poly(g, [(78, 168), (94, 156), (146, 155), (164, 168),
-             (160, 200), (140, 214), (100, 213), (80, 196)], 17)
+    poly(g, [(74, 172), (92, 158), (148, 157), (168, 172),
+             (164, 206), (142, 220), (98, 219), (76, 202)], 17)
     poly(g, [(86, 171), (98, 162), (142, 161), (156, 171),
              (152, 196), (136, 206), (104, 205), (90, 192)], 18)
     poly(g, [(94, 176), (104, 170), (136, 170), (146, 176),
@@ -188,55 +285,79 @@ def build_tree():
                              (138, 212, 7, 14)):
         poly(g, [(tx, ty), (tx + tw, ty), (tx + tw // 2, ty - th)], 21)
 
+    # ============ 眼/嘴周围清出干净树皮（视觉焦点）============
+    for (cx_, cy_, rx_, ry_) in ((88, 142, 26, 20), (152, 142, 26, 20),
+                                 (120, 190, 54, 42)):
+        for yy in range(cy_ - ry_, cy_ + ry_ + 1):
+            for xx in range(cx_ - rx_, cx_ + rx_ + 1):
+                if not (0 <= yy < H and 0 <= xx < W):
+                    continue
+                if ((xx - cx_) / rx_) ** 2 + ((yy - cy_) / ry_) ** 2 <= 1.0:
+                    if g[yy, xx] in (9, 10, 11, 12, 13, 14, 15, 16):
+                        g[yy, xx] = 3 if (xx + yy) % 7 else 4
+
     # ============ 眼睛 ============
-    ell(g, 92, 140, 12, 10, 17)
-    ell(g, 148, 140, 12, 10, 17)
-    ell(g, 92, 141, 7, 6, 28)          # 暗红瞳
-    ell(g, 148, 141, 7, 6, 28)
-    ell(g, 92, 141, 3, 3, 29)
-    ell(g, 148, 141, 3, 3, 29)
-    rect(g, 89, 138, 91, 139, 22)      # 高光
-    rect(g, 145, 138, 147, 139, 22)
+    ell(g, 88, 142, 13, 11, 17)
+    ell(g, 152, 142, 13, 11, 17)
+    ell(g, 88, 143, 7, 6, 28)          # 暗红瞳
+    ell(g, 152, 143, 7, 6, 28)
+    ell(g, 88, 143, 3, 3, 29)
+    ell(g, 152, 143, 3, 3, 29)
+    rect(g, 85, 140, 87, 141, 22)      # 高光
+    rect(g, 149, 140, 151, 141, 22)
     line(g, 76, 128, 104, 133, 2, 3)        # 眉压
     line(g, 136, 133, 164, 128, 2, 3)
 
     # ============ 苔藓：四层堆叠 ============
+    # 树皮遮罩：苔藓只能长在树皮表面，否则会飘成一团绿色噪声
     def moss_patch(cx, cy, rw, rh, dens):
         # 先铺连续基底：参考图的苔藓是"整块"的，不是一堆碎点
+        before = g.copy()
         ell(g, cx, cy, rw * 0.82, rh * 0.82, 10)
         ell(g, cx - rw * 0.12, cy - rh * 0.22, rw * 0.62, rh * 0.55, 11)
         ell(g, cx - rw * 0.22, cy - rh * 0.30, rw * 0.34, rh * 0.30, 12)
+        # 基底超出树皮的部分还原（苔藓要贴着树皮长）
+        spill = (g != before) & ~BARK
+        g[spill] = before[spill]
         for _ in range(dens):
             x = int(cx + rng.randn() * rw * 0.55)
             y = int(cy + rng.randn() * rh * 0.55)
-            r = 2 + int(rng.rand() * 4)
-            ell(g, x, y, r, max(1, r - 1), 9)
-        for _ in range(dens):
+            if not in_bark(x, y):
+                continue
+            r = 1 + int(rng.rand() * 3)
+            ell(g, x, y, r, max(1, r - 1), 10)
+        for _ in range(dens // 2):
             x = int(cx + rng.randn() * rw * 0.5)
             y = int(cy + rng.randn() * rh * 0.5)
-            r = 2 + int(rng.rand() * 3)
-            ell(g, x, y, r, max(1, r - 1), 11)
-        for _ in range(dens // 2):
+            if not in_bark(x, y):
+                continue
+            r = 1 + int(rng.rand() * 2)
+            ell(g, x, y, r, max(1, r - 1), 12)
+        for _ in range(dens // 4):
             x = int(cx + rng.randn() * rw * 0.42)
             y = int(cy + rng.randn() * rh * 0.42)
-            r = 1 + int(rng.rand() * 2)
-            ell(g, x, y, r, r, 13)
-        for _ in range(dens // 3):
+            if in_bark(x, y):
+                ell(g, x, y, 1, 1, 14)
+        for _ in range(dens // 5):
             x = int(cx + rng.randn() * rw * 0.36)
             y = int(cy + rng.randn() * rh * 0.36)
-            rect(g, x, y, x + 1, y + 1, 15)
+            if in_bark(x, y):
+                rect(g, x, y, x, y, 15)
 
     # 顶部：厚厚一层
     poly(g, [(54, 106), (70, 94), (120, 92), (168, 96), (182, 110),
              (150, 104), (120, 100), (80, 104), (60, 114)], 10)
-    moss_patch(CX, 104, 64, 13, 70)
-    # 两侧大片垂落（参考图里整体是黄绿色，树皮只在缝里露）
-    moss_patch(64, 132, 20, 26, 44)
-    moss_patch(58, 178, 18, 34, 44)
-    moss_patch(66, 234, 20, 34, 40)
-    moss_patch(184, 128, 18, 28, 40)
-    moss_patch(190, 180, 18, 36, 44)
-    moss_patch(182, 238, 18, 28, 36)
+    moss_patch(CX, 96, 74, 16, 90)
+    # 两侧沿边缘垂落（中间留出树皮，不然全糊成绿噪声）
+    moss_patch(56, 132, 20, 30, 44)
+    moss_patch(50, 186, 18, 38, 44)
+    moss_patch(58, 242, 20, 36, 40)
+    moss_patch(186, 128, 18, 32, 40)
+    moss_patch(192, 186, 18, 40, 44)
+    moss_patch(184, 244, 18, 34, 38)
+    # 层缝横向苔带（细一点，只压在缝上）
+    moss_patch(CX, 180, 52, 7, 20)
+    moss_patch(CX, 232, 58, 7, 22)
     # 树瘤、分缝上的苔簇
     moss_patch(CX + 66, 186, 13, 13, 26)
     moss_patch(CX - 66, 140, 12, 14, 24)
