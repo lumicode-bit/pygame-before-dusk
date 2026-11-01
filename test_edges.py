@@ -589,6 +589,74 @@ def test_files():
         os.remove(p)
 
 
+# ---------------------------------------------------------------- AI 通行
+def test_ai_traverse():
+    """AI 走图相关的回归（第二十四轮：用机器人跑全关查出来的）"""
+    print("== 5.5 AI 通行 ==")
+    T = core.TILE
+
+    # 1) 打穿岩壁后导航图必须重建。缓存原来只在闸门状态变化时刷新，
+    #    岩壁打没了 AI 还按"墙还在"的旧图走，会给出翻墙的假路径。
+    eng = core.GameEngine()
+    g1 = eng._nav_graph()
+    assert core.ROCK_HP > 0
+    eng._damage_rock(54, 17, 99)
+    eng._damage_rock(54, 18, 99)
+    g2 = eng._nav_graph()
+    check("碎岩后导航图重建", g2 is not g1)
+    p = g2.path(54 * T + 16, 19 * T, 60 * T + 16, 19 * T)
+    kinds = [k for _, k in (p or [])]
+    check("打穿后能直接走过去（不用翻墙）", p is not None and "walk" in kinds, str(kinds[:4]))
+
+    # 2) 被平台挡住的飞行怪不该成为射击目标（弓手会对着平台底一直放箭）
+    eng = core.GameEngine()
+    x = 24 * T + 16
+    check("隔着平台看不见飞行怪",
+          not core._los_clear(eng, x, 19 * T - 26, x, 10 * T))
+    check("同层无遮挡可见",
+          core._los_clear(eng, 24 * T + 16, 19 * T - 26, 30 * T + 16, 19 * T - 26))
+
+    # 3) 跳板起跳窗口不判方向：盾卫被叫回起点踩机关时，
+    #    一进 35 列就被按住起跳，来回弹跳走不掉。
+    eng = core.GameEngine()
+    eng.pads.append([37 * T, 17 * T, 9.0, 9.0, True, "A"])
+    eng.players[1]["x"] = 35 * T + 8
+    eng.players[1]["y"] = 19 * T
+    eng.players[1]["on_ground"] = True
+    # 目标在左边（回起点踩机关），不该在这里起跳
+    left = core._make_ai_input_raw(1, eng, 0, lead=(4 * T, 19 * T))
+    check("跳板窗口不往反方向起跳", not left.get("up"), str(left.get("up")))
+    # 而且真的能往左走出去（旧代码会在这个窗口里原地弹跳）
+    x0 = eng.players[1]["x"]
+    for _ in range(60):
+        i2 = core._make_ai_input_raw(1, eng, 0, lead=(4 * T, 19 * T))
+        eng.step({1: i2}, core.TICK_DT)
+    moved = x0 - eng.players[1]["x"]
+    check("跳板窗口能往左走开（不卡在窗口里弹跳）", moved > T, "移动 %.0f px" % moved)
+
+    # 4) 贴身怪要砍得到：判定盒往身后留了 16px
+    eng = core.GameEngine()
+    p1 = eng.players[1]
+    p1["x"], p1["y"], p1["facing"] = 40 * T + 4, 19 * T, 1
+    m = core.Monster(9999, "ground", p1["x"] - 4, 19 * T - core.MONSTER_H)
+    eng.monsters = [m]
+    hp0 = m.hp
+    for _ in range(20):
+        eng.step({1: {"sword": True}}, core.TICK_DT)
+    check("站在身上的怪砍得到", m.hp < hp0 or m not in eng.monsters,
+          "hp %.1f -> %.1f" % (hp0, m.hp))
+
+    # 5) 挂着藤蔓时不被"回起点/过坑"分支拽走（会沿绳滑到端点再抓回来，死循环）
+    eng = core.GameEngine()
+    p1 = eng.players[1]
+    v = eng.vines[1]
+    p1["x"], p1["y"] = (v[2] + v[0]) / 2, (v[3] + v[1]) / 2
+    p1["vine"] = 1
+    p1["vine_t"] = 0.5
+    inp = core._make_ai_input_raw(1, eng, 0, lead=(4 * T, 19 * T))
+    check("挂藤时不会同时按跳（按跳=松手）", not inp.get("up"), str(inp.get("up")))
+
+
 # ---------------------------------------------------------------- 网络
 def test_net():
     print("== 6. 网络封包 ==")
@@ -1067,6 +1135,7 @@ def main():
     test_files()
     test_regress_round14()
     test_event_feedback()
+    test_ai_traverse()
     test_net()
     test_ui()
     print("-" * 56)

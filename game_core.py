@@ -1208,10 +1208,16 @@ class GameEngine:
                     p["swing"] = 1.0
                     fx = p["x"] + p["facing"] * (PLAYER_W / 2 - 2)
                     fy = p["y"] - 6
+                    # 判定盒往身后多留 16px：怪经常直接站在身上（贴身追击时
+                    # 只差几像素就落在拳心后面），严格只算前方的盒子会出现
+                    # "怪贴着我咬，我砍不到"的情况（AI 盾卫会一直空挥）。
+                    _SW_BACK = 16
                     if p["facing"] > 0:
-                        rng = (fx, fy - SWORD_RANGE, SWORD_RANGE, SWORD_RANGE)
+                        rng = (fx - _SW_BACK, fy - SWORD_RANGE,
+                               SWORD_RANGE + _SW_BACK, SWORD_RANGE)
                     else:
-                        rng = (fx - SWORD_RANGE, fy - SWORD_RANGE, SWORD_RANGE, SWORD_RANGE)
+                        rng = (fx - SWORD_RANGE, fy - SWORD_RANGE,
+                               SWORD_RANGE + _SW_BACK, SWORD_RANGE)
                     self.events.append(("swing", int(fx), int(fy - 10)))
                     # 剑也能砸碎岩石：清路不该只有弓手能办
                     try:
@@ -2567,6 +2573,10 @@ class GameEngine:
         if hp <= 0:
             self.rocks.pop(key, None)
             self.grid[cy][cx] = 'G' if cy == 19 else ' '
+            # 地形变了，导航图必须重建：缓存只在闸门开关时刷新，
+            # 打穿岩壁后 AI 还按"墙还在"的旧图走，会给出翻墙的假路径，
+            # 表现为顶着墙原地跳。
+            self._nav_key = None
             self.events.append(("rock_break", cx * TILE + 16, cy * TILE + 16))
         else:
             self.rocks[key] = hp
@@ -3290,8 +3300,12 @@ def lan_listen(out_q, stop_event):
 # --------------------------------------------------------------------------
 # 单人模式 AI 控制器（AI 托管的非当前操控角色）
 # --------------------------------------------------------------------------
-def _make_ai_input_raw(ai_pid, eng, other_pid):
+def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
     """生成AI角色输入。ai_pid: AI控制角色(0弓箭手/1盾卫), other_pid: 玩家操控角色。
+
+    lead: 可选的"汇合点"(x, y)。默认跟随时以队友为汇合点；传入后改为朝这个
+    坐标走。给"两个角色都由 AI 托管"的自动演示/机器人测试用 —— 否则两个 AI
+    会互相跟随，站到一起后各自都判定"目标已到达"，双双僵在原地。
 
     AI策略：
       盾卫  -> 清地面怪 > 踩压力机关 > 低血格挡 > 跟随玩家
@@ -3307,6 +3321,8 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
     try:
         me = eng.players[ai_pid]
         other = eng.players[other_pid]
+        # 汇合点：默认是队友；外部指定了 lead 就用 lead（AI 全托管演示）
+        fx, fy = (float(lead[0]), float(lead[1])) if lead else (other["x"], other["y"])
         inp = {
             "left": False, "right": False, "up": False, "down": False,
             "shoot": False, "sword": False, "block": False,
@@ -3314,6 +3330,27 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
             "mx": float(other["x"]), "my": float(other["y"]),
         }
         px, py = me["x"], me["y"]
+
+        # 挂在藤蔓上：只让导航层接管（沿绳滑 / 到端点松手）。
+        # 否则"回起点踩机关""过深坑"这些分支会用左右键把 AI 顺着绳子
+        # 一路滑走，滑到端点掉下来，再走过去、再抓上去，无限循环。
+        if me.get("vine", -1) >= 0:
+            v = eng.vines[me["vine"]]
+            lower_right = v[2] >= v[0]        # 绳子的低端在右边？
+            if fy < py - 40:
+                # 目标在上方：沿绳往上爬
+                if _nav_follow(eng, ai_pid, inp, fx, fy):
+                    return inp
+                inp["down"] = True
+                return inp
+            if abs(fx - px) > 60 and (fx > px) != lower_right:
+                # 想去的一侧和"下滑"方向相反 -> 直接松手落地，别再顺着绳滑
+                inp["down"] = True
+                return inp
+            if _nav_follow(eng, ai_pid, inp, fx, fy):
+                return inp
+            inp["down"] = True
+            return inp
 
         def solid(cx, cy):
             return eng._solid_at(int(cx), int(cy))
@@ -3324,7 +3361,8 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
             for m in eng.monsters:
                 if m.kind == "fly":
                     d = abs(m.x - px) + abs(m.y - py)
-                    if d < nd:
+                    # 被平台/岩壁挡住的飞行怪射不到，别把弓举着对天花板放箭
+                    if d < nd and _los_clear(eng, px, py - 26, m.x, m.y - 12):
                         nd, near_fly = d, m
             if near_fly is not None and nd < 380:
                 inp["shoot"] = True
@@ -3343,12 +3381,12 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
         crossing = None
         # 条件放宽：允许 AI 走出左/右岸并踏上阶板（右缘仍未超过阶板右端前都算过坑方向），
         # 否则当 AI 停在坑口边缘(px≈pit_l-14)时条件失效，被 advance 深坑刹车逻辑挡住永远上不了板
-        need_left = px - PLAYER_W / 2 > pit_r - SPIKE_PAD_W + 6 and other["x"] < pit_l + 30
-        need_right = px + PLAYER_W / 2 < pit_l + SPIKE_PAD_W - 6 and other["x"] > pit_r - 30
+        need_left = px - PLAYER_W / 2 > pit_r - SPIKE_PAD_W + 6 and fx < pit_l + 30
+        need_right = px + PLAYER_W / 2 < pit_l + SPIKE_PAD_W - 6 and fx > pit_r - 30
         if past_lava:
             if on_plate:
                 # 骑板中：根据队友方向确定过坑方向，随板升到坑口时走下阶板
-                crossing = "right" if other["x"] > px else "left"
+                crossing = "right" if fx > px else "left"
             elif need_right:
                 crossing = "right"
             elif need_left:
@@ -3396,7 +3434,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
                 return inp
 
         # ---------- 岩浆坑跨越（借助移动阶板）----------
-        if px < LAVA_RIGHT_PX - 20 and other["x"] > 78 * TILE:
+        if px < LAVA_RIGHT_PX - 20 and fx > 78 * TILE:
             if me["on_ground"] and me["y"] < 19 * TILE - 20:
                 # 骑板中被携带：板近右岸时向右走出
                 for plate in eng._m_plates.values():
@@ -3468,15 +3506,17 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
                             inp["up"] = True
                         break
             # 跳板跨越（仅在主地面层触发）
+            # 必须确认"确实要往右走"：盾卫被叫回起点踩机关时会从跳板窗口往左穿，
+            # 旧代码不判方向，一到 35 列就被这里按住起跳，来回弹跳走不掉。
             if me["on_ground"] and abs(py - 19 * TILE) < 8:
                 za = [p for p in eng.pads if p[5] == "A"]
                 zb = [p for p in eng.pads if p[5] == "B"]
                 # A断崖：地面A右缘起跳 -> 落板37-39 -> 弹射过崖
-                if za and px <= 1408 and 1120 <= px <= 1150:
+                if za and tx > px and px <= 1408 and 1120 <= px <= 1150:
                     inp["up"] = True
                     return
                 # B高台：地面B起跳 -> 落板57-61 -> 弹射上终点平台
-                if zb and 60 * TILE < tx and 1680 <= px <= 1850:
+                if zb and 60 * TILE < tx and tx > px and 1680 <= px <= 1850:
                     inp["up"] = True
                     return
                 # 越过起跳窗口却还没上平台 -> 退回重跳（最多2次收敛）
@@ -3513,7 +3553,13 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
             if not wall:
                 for dd in (1, 2):
                     if not solid(col + d * dd, row + 1):
-                        pit = True
+                        # 浅沟（下面 5 格内有地板）不算坑：走下去再爬出来就行。
+                        # 以前只要前方脚下空一格就起跳，AI 在 A 断崖边一路小跳，
+                        # 每次都蹭到斜拉藤蔓被挂住，然后在崖口原地弹跳走不动。
+                        has_floor = any(solid(col + d * dd, rr)
+                                        for rr in range(row + 2, min(MAP_H, row + 6)))
+                        if not has_floor:
+                            pit = True
                         break
             high = ty < py - 45 and abs(tx - px) > 30
             if me["on_ground"]:
@@ -3588,8 +3634,14 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
                 except Exception:
                     continue
                 pcx = cfg["cx"] * TILE + TILE
-                need = (1040 < other["x"] < 1420) or (1040 < px < 1420)
-                if need and abs(py - 19 * TILE) < TILE * 2:
+                # 跳板还在场就别再往起点跑：队友已经过崖了，盾卫还一趟趟跑回
+                # 4 列踩机关，来回 30 格，整队被拖住。
+                _pad_alive = any(pp[5] == cfg["id"] for pp in eng.pads)
+                need = ((1040 < fx < 1420) or (1040 < px < 1420)) and not _pad_alive
+                # 只判"我在断崖左边"而不是判脚底高度：盾卫跳在空中时
+                # abs(py-地面) 会短暂不成立，条件一帧真一帧假，它就在崖口
+                # 左右横跳、永远走不到机关上。
+                if need and px < 50 * TILE:
                     advance(pcx, 19 * TILE)
                     return inp
             # 4) 低血且近处有怪 -> 举盾格挡
@@ -3597,9 +3649,9 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
                     m.kind in ("ground", "boss") and abs(m.x - px) < 150 for m in monsters):
                 inp["block"] = True
             # 5) 跟随玩家：优先走导航图（能上塔、能跨楼层），走不通再退回启发式
-            if _nav_follow(eng, ai_pid, inp, other["x"], other["y"]):
+            if _nav_follow(eng, ai_pid, inp, fx, fy):
                 return inp
-            advance(other["x"], other["y"])
+            advance(fx, fy)
             return inp
 
         # ================= AI 弓箭手 =================
@@ -3610,16 +3662,19 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
         for m in monsters:
             if m.kind in ("fly", "caster", "boss"):
                 d = abs(m.x - px) + abs(m.y - py)
-                if d < bd:
+                if d < bd and _los_clear(eng, px, py - 26, m.x, m.y - 12):
                     bd, best = d, m
 
-        # 岩石墙未破且需要通行 -> 优先射墙（先打通行19的通道）
+        # 岩石墙未破且需要通行 -> 优先射墙。
+        # 只打最低的几块，从下往上开洞；但必须打到 17 行 —— 角色高 44px
+        # （1.4 格），脚踩 19 行时脑袋伸进 17 行。只轰掉 18/19 两行看起来
+        # "洞开了"，实际还是过不去，AI 会顶着墙一直跳。
         wall_rock = None
         for (rx, ry), hp in sorted(eng.rocks.items(), key=lambda kv: (-kv[0][1], kv[0][0])):
-            if hp > 0 and rx in (54, 55) and ry >= 18:
+            if hp > 0 and rx in (54, 55) and ry >= 17:
                 wall_rock = ((rx + 0.5) * TILE, (ry + 0.5) * TILE)
                 break
-        need_cross = other["x"] > 50 * TILE or px > 50 * TILE
+        need_cross = fx > 50 * TILE or px > 50 * TILE
         if wall_rock and need_cross:
             if px < 46 * TILE:
                 advance(47 * TILE, py)
@@ -3644,6 +3699,10 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
             else:
                 dxm = best.x - px
                 dmv = (1 if dxm > 0 else -1) if abs(dxm) > 50 else 0
+            if not dmv and abs(fx - px) > 80:
+                # 目标几乎在正上方（蝙蝠盘旋）时原来会原地不动一直射。
+                # 这时候继续朝汇合点走，别把队友晾在半张图外。
+                dmv = 1 if fx > px else -1
             if dmv:
                 # 安全落点判定：① 和当前地面差不多高的地板（退进 3 格深的坑里
                 # 等于被堵死）② 不在岩浆范围内（弓箭手曾边退边射退进岩浆烧死）
@@ -3662,9 +3721,9 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
             return inp
 
         # 跟随玩家
-        if _nav_follow(eng, ai_pid, inp, other["x"], other["y"]):
+        if _nav_follow(eng, ai_pid, inp, fx, fy):
             return inp
-        advance(other["x"], other["y"])
+        advance(fx, fy)
         return inp
     except Exception:
         return dict(safe)
@@ -3672,6 +3731,29 @@ def _make_ai_input_raw(ai_pid, eng, other_pid):
 
 AI_COMMANDS = ("follow", "guard", "focus")
 AI_CMD_LABEL = {"follow": "跟随", "guard": "守点", "focus": "集火"}
+
+
+def _los_clear(eng, x0, y0, x1, y1, step=7.0):
+    """弓弦到目标之间有没有被实心地形挡住。
+
+    弓箭手 AI 之前会站在平台正下方，对着平台上面的蝙蝠一直放箭 ——
+    箭全打在平台底面，人却因为"有射击目标"而站桩不再前进。
+    """
+    try:
+        dx, dy = x1 - x0, y1 - y0
+        dist = math.hypot(dx, dy)
+        if dist < 1.0:
+            return True
+        n = int(dist / step) + 1
+        for i in range(1, n):
+            t = i / float(n)
+            cx = int((x0 + dx * t) // TILE)
+            cy = int((y0 + dy * t) // TILE)
+            if eng._solid_at(cx, cy):
+                return False
+        return True
+    except Exception:
+        return True
 
 
 def _nav_follow(eng, ai_pid, inp, tx, ty):
@@ -3695,7 +3777,13 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
                     inp["up"] = True
                 return True
             return False
-        node, kind = p[1]
+        # 跳过"就站在脚下"的节点：人正好站在两个节点的分界上时，node_at 会
+        # 一帧一帧地在左右两个节点之间来回切，方向也跟着一帧一变，
+        # 表现是原地左右高频抖动、永远走不动。
+        idx = 1
+        while idx < len(p) - 1 and abs(g.nodes[p[idx][0]][0] - me["x"]) <= 10:
+            idx += 1
+        node, kind = p[idx]
         nx, ny = g.nodes[node]
         dx = nx - me["x"]
         hanging = me.get("vine", -1) >= 0
@@ -3728,14 +3816,16 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
         return False
 
 
-def make_ai_input(ai_pid, eng, other_pid, cmd="follow"):
+def make_ai_input(ai_pid, eng, other_pid, cmd="follow", lead=None):
     """AI 输入入口：在原始策略外层再加一道"深坑护栏"。
 
     原始策略在附近有怪物时会切进战斗分支，可能无视坑口直接走进深渊；
     这里统一在最后做一次安全裁剪：当刀刺阶板还没升到与地面齐平时，
     禁止 AI 从岸边朝坑内迈步（骑在板上或已越过坑时不受限制）。
+
+    lead: 见 _make_ai_input_raw，用于"两个角色都托管"的自动演示。
     """
-    inp = _make_ai_input_raw(ai_pid, eng, other_pid)
+    inp = _make_ai_input_raw(ai_pid, eng, other_pid, lead=lead)
     try:
         me = eng.players[ai_pid]
         if cmd == "focus" and eng.monsters:
