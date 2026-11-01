@@ -2234,8 +2234,20 @@ class WorldRenderer:
                     _prog = max(0.0, min(1.0, _prog))
                 _yoff = int((1.0 - _prog) * 22) if _prog is not None else 0
                 if kind == "boss":
-                    frame = int(t * 4) % 2
-                    img = sprites.get_monster("boss", frame)
+                    # 手臂跟着状态走：走路摆臂 / 蓄力举拳 / 冲锋前顶 / 砸地
+                    _bs = m.get("state", "walk")
+                    _bt = float(m.get("state_t", 0.0))
+                    if _bs == "slam":
+                        _pose = "slam_up" if _bt < 0.35 else "slam_down"
+                    elif _bs == "tele":
+                        _pose = "raise"
+                    elif _bs == "charge":
+                        _pose = "charge"
+                    elif _bs == "recover":
+                        _pose = "slam_down" if _bt < 0.16 else "walk0"
+                    else:
+                        _pose = "walk1" if int(t * 4) % 2 else "walk0"
+                    img = sprites.get_monster("boss", _pose)
                     if m.get("dir", 1) < 0:
                         img = pygame.transform.flip(img, True, False)
                     r = img.get_rect(midbottom=(int(m["x"]) - cam_x, int(m["y"]) - cam_y + 4))
@@ -2250,6 +2262,14 @@ class WorldRenderer:
                         # 蓄力：红光越来越亮，给玩家反应时间
                         theme.glow_circle(surf, r.center, 84, (255, 70, 48), 0.30 + 0.55 * fl, 4)
                     theme.glow_circle(surf, (r.centerx, r.centery + 2), 34, (255, 150, 70), 0.55, 3)
+                    # 砸地落拳：两只拳头位置各炸一团火，读起来才是"用手砸"
+                    if _bs == "slam" and _bt >= 0.35:
+                        _k = max(0.0, 1.0 - (_bt - 0.35) / 0.25)
+                        for _fx in (17, 75):
+                            theme.glow_circle(surf, (r.left + _fx, r.top + 108),
+                                              22, (255, 170, 90), 0.55 * _k, 3)
+                            theme.glow_circle(surf, (r.left + _fx, r.top + 108),
+                                              10, (255, 246, 220), 0.85 * _k, 2)
                     if m.get("state") == "charge":
                         for k in (1, 2, 3):
                             g = img.copy()
