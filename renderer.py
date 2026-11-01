@@ -2327,31 +2327,38 @@ class WorldRenderer:
         """
         try:
             f = 1 if facing >= 0 else -1
-            cx = x + f * 8
-            cy = y - 20
-            ln = 46.0
+            # 刀光是一条"月牙"：从斜上方扫到斜下方，用二次贝塞尔弯曲。
+            # 两刀方向相反、各自弯向一侧，交叉处就自然叠成一个 X。
+            cx = x + f * 2
+            cy = y - 26
             if d > 0:
-                p0 = (cx - ln * 0.72 * f, cy - ln * 0.72)
-                p1 = (cx + ln * 0.86 * f, cy + ln * 0.52)
+                p0 = (cx - 32 * f, cy - 34)
+                p1 = (cx + 38 * f, cy + 28)
+                ctrl = (cx + 16 * f, cy - 6)
             else:
-                p0 = (cx + ln * 0.72 * f, cy - ln * 0.72)
-                p1 = (cx - ln * 0.86 * f, cy + ln * 0.52)
-            prog = max(0.05, min(1.0, k))
-            ex = p0[0] + (p1[0] - p0[0]) * prog
-            ey = p0[1] + (p1[1] - p0[1]) * prog
-            # 三层叠加：外辉 -> 刃身 -> 刃芯
-            layers = ((14, (70, 160, 225), 0.30),
-                      (8, (170, 226, 255), 0.70),
-                      (3, (245, 254, 255), 1.00))
-            for wdt, col, ia in layers:
+                p0 = (cx + 32 * f, cy - 34)
+                p1 = (cx - 38 * f, cy + 28)
+                ctrl = (cx - 16 * f, cy - 6)
+            prog = max(0.10, min(1.0, k))
+            n = 14
+            pts = []
+            for i in range(n + 1):
+                tt = (i / float(n)) * prog
+                u = 1.0 - tt
+                pts.append((u * u * p0[0] + 2 * u * tt * ctrl[0] + tt * tt * p1[0],
+                            u * u * p0[1] + 2 * u * tt * ctrl[1] + tt * tt * p1[1]))
+            # 三层叠加 + 末端更粗（锥形刀光）
+            for wdt, col in ((9, (66, 152, 220)), (5, (168, 226, 255)),
+                             (2, (246, 254, 255))):
                 c = tuple(int(ch * (0.55 + 0.45 * alpha)) for ch in col)
-                pygame.draw.line(surf, c, (int(p0[0]), int(p0[1])),
-                                 (int(ex), int(ey)), int(wdt))
-            # 起手处的一小片火花
-            theme.glow_circle(surf, (p0[0], p0[1]), 12, (200, 238, 255),
-                              0.60 * alpha, 3)
-            theme.glow_circle(surf, (ex, ey), 10, (255, 255, 255),
-                              0.85 * alpha, 3)
+                for i in range(len(pts) - 1):
+                    tt = (i + 1) / float(max(1, len(pts) - 1))
+                    w = max(1, int(wdt * (0.45 + 0.75 * tt)))
+                    pygame.draw.line(surf, c, (int(pts[i][0]), int(pts[i][1])),
+                                     (int(pts[i + 1][0]), int(pts[i + 1][1])), w)
+            # 起手火花 + 刀锋最前端的高光
+            theme.glow_circle(surf, pts[0], 10, (190, 232, 255), 0.50 * alpha, 2)
+            theme.glow_circle(surf, pts[-1], 12, (255, 255, 255), 0.85 * alpha, 3)
         except Exception:
             pass
 
@@ -2393,18 +2400,29 @@ class WorldRenderer:
             y = int(p["y"]) - cam_y
             kind = "archer" if pid == 0 else "guard"
             hp = p.get("hp", 1)
+            sw_v = p.get("swing", 0.0)
+            sw_dir = int(p.get("swing_dir", 1) or 1)
+            swinging = (pid == 1 and sw_v > 0.02)
             if hp <= 0:
                 pose = "fall"
             elif not p.get("on_ground", True):
                 pose = "jump" if p.get("vy", 0) < 0 else "fall"
             elif p.get("blocking"):
                 pose = "block"
+            elif swinging:
+                # 前半段是起手（剑举高），后半段是收招（剑劈下）
+                pose = "swing0" if (1.0 - sw_v) < 0.45 else "swing1"
             elif p.get("moving"):
                 pose = "run%d" % (int(t * 12 + pid * 2) % 4)
             else:
                 pose = "idle1" if int(t * 1.7 + pid) % 2 else "idle0"
             img = sprites.get_char(kind, pose)
-            if p["facing"] < 0:
+            # 挥剑姿势只画了"朝右"一套：朝向和斩击方向相反时要再翻一次，
+            # 这样"手在哪边、刀往哪边扫"才是对得上的。
+            flip = (p["facing"] < 0)
+            if swinging and sw_dir < 0:
+                flip = not flip
+            if flip:
                 img = pygame.transform.flip(img, True, False)
             land = p.get("land", 0.0)
             if land > 0.04:
@@ -2436,8 +2454,6 @@ class WorldRenderer:
                 if p.get("blocking"):
                     self._draw_shield(surf, rect, p["facing"], t)
                 sw = p.get("swing", 0.0)
-                if sw > 0:
-                    self._draw_sword(surf, rect, p["facing"], 1.0 - sw)
                 # 左右交替的 X 斩：新的一刀出手时，把上一刀留成残影
                 prev = self._slash_last.get(pid, 0.0)
                 if sw > 0.92 >= prev:
@@ -2447,11 +2463,15 @@ class WorldRenderer:
                     self._slash_ghost[pid] = self._slash_ghost[pid][-2:]
                 self._slash_last[pid] = sw
                 # 残影
+                # 残影：形状**冻结**在"已经挥完"，只淡出。
+                # 之前让残影跟着 age 重放，等于每一刀都从起手重新画，
+                # 两刀永远凑不到一起，X 就出不来。
                 keep = []
                 for d, age in self._slash_ghost.get(pid, []):
                     na = age + _dt
-                    if na < 0.26:
-                        self._draw_slash(surf, x, y, p["facing"], d, na / 0.26, 0.55)
+                    if na < 0.45:
+                        self._draw_slash(surf, x, y, p["facing"], d, 1.0,
+                                         max(0.0, 1.0 - na / 0.45) * 0.65)
                         keep.append((d, na))
                 self._slash_ghost[pid] = keep
                 if sw > 0:

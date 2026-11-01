@@ -257,6 +257,10 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
         leg = -0.9
     elif pose == "block":
         bob = 1
+    elif pose == "swing":
+        # 0 = 起手（身体略后仰、剑举高），1 = 收招（前倾、剑劈下）
+        lean = 1 if frame else -1
+        bob = 0 if frame else -1
 
     top = 4 + bob
     cx = 18 + lean                       # 身体中轴
@@ -416,7 +420,22 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
         # 右臂
         R(cx + 5, top + 15, cx + 7, top + 22, 2)
         R(cx + 5, top + 21, cx + 8, top + 23, 5)          # 拳
-        if pose == "block":
+        if pose == "swing":
+            # 挥剑：起手举高 / 收招劈下 —— 两个姿势都由渲染层按
+            # swing_dir 镜像，所以只画"朝右"这一套
+            if frame == 0:
+                R(cx + 4, top + 9, cx + 6, top + 15, 2)       # 上臂
+                R(cx + 5, top + 7, cx + 8, top + 10, 5)       # 拳
+                R(cx + 6, top + 8, cx + 9, top + 9, 8)        # 护手
+                Ln(cx + 8, top + 8, cx + 12, top + 0, 5)      # 剑身（斜上）
+                Ln(cx + 9, top + 8, cx + 13, top + 0, 11)     # 刃光
+            else:
+                R(cx + 5, top + 13, cx + 7, top + 18, 2)      # 上臂
+                R(cx + 7, top + 16, cx + 9, top + 18, 5)      # 拳
+                R(cx + 7, top + 16, cx + 10, top + 17, 8)     # 护手
+                Ln(cx + 9, top + 17, cx + 14, top + 25, 5)    # 剑身（斜下）
+                Ln(cx + 10, top + 17, cx + 15, top + 25, 11)  # 刃光
+        elif pose == "block":
             # 举盾格挡：大盾立在前方
             P([(cx + 5, top + 9), (cx + 12, top + 11), (cx + 12, top + 24),
                (cx + 5, top + 26)], 3)
@@ -672,7 +691,8 @@ MPAL_FLY = {
 # 缓存接口
 # --------------------------------------------------------------------------
 _cache = {}
-POSES = ("idle0", "idle1", "run0", "run1", "run2", "run3", "jump", "fall", "block")
+POSES = ("idle0", "idle1", "run0", "run1", "run2", "run3", "jump", "fall",
+         "block", "swing0", "swing1")
 
 
 def get_char(kind, pose="idle0", skin=None):
@@ -682,10 +702,12 @@ def get_char(kind, pose="idle0", skin=None):
     s = _cache.get(key)
     if s is not None:
         return s
-    frame = int(pose[-1]) if pose.startswith("run") else 0
+    frame = int(pose[-1]) if (pose.startswith("run") or pose.startswith("swing")) else 0
     base_pose = "idle" if pose.startswith("idle") else pose
     if pose.startswith("run"):
         base_pose = "run"
+    elif pose.startswith("swing"):
+        base_pose = "swing"
     g = _character(kind, base_pose, frame, skin_style(kind, skin))
     pal = skin_palette(kind, skin)
     s = _render(g, pal)
