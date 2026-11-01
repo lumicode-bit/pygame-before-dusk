@@ -110,12 +110,14 @@ def main():
         else:
             stuck_t += dt
             if stuck_t > 10.0:
-                print("!! 10 秒无推进：弓(%.1f,%.1f) 盾(%.1f,%.1f) 路标=%d(%d 列)" % (
+                # 只报警不中断：双人闸门前"弓手站在机关上等盾卫"是正常等待，
+                # 领队本来就不会推进。真正卡死交给总超时判定。
+                print("!! 10 秒无推进：弓(%.1f,%.1f) 盾(%.1f,%.1f) 路标=%d(%d 列) 闸门=%s" % (
                     eng.players[0]["x"] / TILE, eng.players[0]["y"] / TILE,
                     eng.players[1]["x"] / TILE, eng.players[1]["y"] / TILE,
-                    wp, wx))
-                print("   墙体剩余: %s" % sorted(eng.rocks.items()))
-                return 2
+                    wp, wx, eng.duo_gate_open))
+                stuck_t = 0.0
+                best_x = cur
 
     print(describe(eng))
     print("超时 %.0fs 未通关。路标 %d/%d，队伍最靠后 x=%.1f 格" %

@@ -990,6 +990,36 @@ class GameEngine:
         except Exception:
             pass
 
+    def recall_ally(self, warp_dist=200.0):
+        """一键召回同伴：立刻切回跟随，清掉所有"卡住"计时，远了直接拉回来。
+
+        和 F 键循环切换指令不同，这个是"救命键"：AI 被地形卡住、
+        或者追着怪跑偏了，按一下就能把它叫回身边，不用等归队兜底的 1 秒。
+        """
+        try:
+            ai = self.ai_pid
+            if ai is None:
+                return False
+            a = self.players[ai]
+            human = self.players[1 - ai]
+            self._ai_stuck = 0.0
+            self._ai_anchor_x = a["x"]
+            self._ai_anchor_t = 0.0
+            self._ai_dist = 1e18
+            self._ai_dist_t = 0.0
+            if abs(a["x"] - human["x"]) > warp_dist:
+                a["x"] = human["x"] - 70 * (1 if human["facing"] > 0 else -1)
+                a["y"] = human["y"] - 6
+                a["vx"] = a["vy"] = 0.0
+                a["dash_t"] = 0.0
+                a["vine"] = -1
+                a["invuln"] = max(a["invuln"], 1.2)
+                self.events.append(("ally_warp", int(a["x"]), int(a["y"])))
+            return True
+        except Exception as e:
+            write_log("召回同伴异常: %r" % (e,))
+            return False
+
     def _update_ai_rescue(self, dt):
         """AI 托管角色若长时间滞留在深坑/岩浆或原地不动，就传送到人类角色身边。
 

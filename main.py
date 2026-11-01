@@ -316,6 +316,7 @@ DEFAULT_KEYMAP = {
     "interact": [pygame.K_e],
     "switch": [pygame.K_TAB],
     "command": [pygame.K_f],
+    "recall": [pygame.K_g],
 }
 KEYMAP = {k: list(v) for k, v in DEFAULT_KEYMAP.items()}
 KEY_LABEL = {
@@ -323,9 +324,10 @@ KEY_LABEL = {
     "dash": "冲刺",
     "sword": "挥剑（盾卫）", "block": "格挡（盾卫）", "interact": "交互 / 开箱",
     "switch": "切换操控角色", "command": "同伴指令",
+    "recall": "召回同伴",
 }
 REBIND_ORDER = ("left", "right", "up", "down", "dash", "sword",
-                "block", "interact", "switch", "command")
+                "block", "interact", "switch", "command", "recall")
 
 
 def _key_name(code):
@@ -516,6 +518,7 @@ class App:
             fx.Camera.trauma_mul = theme.clamp(self.settings.get("shake", 1.0))
             self.post.flash_mul = theme.clamp(self.settings.get("flash", 1.0))
             theme.ui_scale = theme.clamp(self.settings.get("ui_scale", 1.0), 0.9, 1.4)
+            theme.quality = max(0, min(2, int(self.settings.get("quality", 1) or 0)))
         except Exception:
             pass
         try:
@@ -1125,6 +1128,7 @@ class App:
             self.seg_quality.update(self.dt, mouse)
             if self.seg_quality.handle(events, mouse):
                 self.settings["quality"] = self.seg_quality.index
+                theme.quality = self.seg_quality.index
                 self.particles.cap = (260, 520, 900)[self.seg_quality.index]
                 audio.sfx("ui_click", 0.7)
             self.seg_quality.draw(s)
@@ -1238,6 +1242,7 @@ class App:
             fx.Camera.trauma_mul = theme.clamp(self.settings.get("shake", 1.0))
             self.post.flash_mul = theme.clamp(self.settings.get("flash", 1.0))
             theme.ui_scale = theme.clamp(self.settings.get("ui_scale", 1.0), 0.9, 1.4)
+            theme.quality = max(0, min(2, int(self.settings.get("quality", 1) or 0)))
         except Exception:
             pass
 
@@ -1875,6 +1880,12 @@ class App:
                     ai_cmd = core.AI_COMMANDS[(idx + 1) % len(core.AI_COMMANDS)]
                     audio.sfx("ui_click", 0.7)
                     add_chat("系统", "同伴指令：" + core.AI_CMD_LABEL[ai_cmd])
+                elif _key_is(ev.key, "recall") and single_mode:
+                    # 一键召回：AI 卡地形 / 追怪跑偏时按一下，立刻切回跟随并归位
+                    ai_cmd = "follow"
+                    warped = engine is not None and engine.recall_ally()
+                    audio.sfx("ui_click", 0.8)
+                    add_chat("系统", "同伴已召回身边" if warped else "同伴指令：跟随")
                 elif ev.key == pygame.K_F12:
                     self.tutorial_done = True
                     add_chat("系统", "已跳过教学")
@@ -2293,9 +2304,10 @@ class App:
             ratio = theme.clamp(hp / float(mxh))
             self.hp_ghost[pid] = max(ratio, self.hp_ghost[pid] - self.dt * 0.55)
             if single_mode and pid != focus_pid:
-                theme.text(s, core.AI_CMD_LABEL.get(ai_cmd, "跟随") + " [F]",
-                           (r.right - 12, y + 20), "tiny",
-                           theme.alpha_color(theme.GOLD_LIGHT, 200), align="right", shadow=False)
+                # 只放一行：卡片右侧到血条只有 20px，两行会压住血量数字
+                theme.text(s, core.AI_CMD_LABEL.get(ai_cmd, "跟随") + "[F] 召回[G]",
+                           (r.right - 12, y + 12), "tiny",
+                           theme.alpha_color(theme.GOLD_LIGHT, 190), align="right", shadow=False)
             if float(p.get("power", 1.0)) > 1.01:
                 theme.text(s, "\u70ac\u7089\u6838\u5fc3 +50%", (x + 62, y + 52), "tiny",
                            theme.alpha_color((255, 190, 110), 230), shadow=False)
@@ -2549,13 +2561,14 @@ class App:
     def draw_help(self):
         s = self.screen
         ui.dim(s, 180)
-        w, h = 720, 430
+        w, h = 720, 470
         r = pygame.Rect((SCREEN_W - w) // 2, (SCREEN_H - h) // 2, w, h)
         ui.panel(s, r, "操作说明", "F1 或 Esc 关闭", icon="gear")
         rows = [("移动", "WASD / 方向键"), ("跳跃 / 二段跳", "空格 或 W"),
                 ("冲刺（短暂无敌）", "Shift 或 L"), ("射击（弓箭手）", "鼠标左键"),
                 ("挥剑（盾卫）", "J"), ("格挡（盾卫）", "K 或 鼠标右键"),
                 ("交互 / 开箱", "E"), ("切换操控角色", "Tab"),
+                ("同伴指令（循环）", "F"), ("召回同伴", "G"),
                 ("聊天", "Enter"), ("暂停", "Esc")]
         for i, (a, b) in enumerate(rows):
             col = i % 2

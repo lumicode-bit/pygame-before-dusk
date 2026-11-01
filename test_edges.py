@@ -729,6 +729,37 @@ def test_ai_traverse():
     check("低血阵亡后复活血量有下限", e.players[0]["hp"] >= floor_hp,
           "复活 hp=%.0f / %.0f" % (e.players[0]["hp"], e.players[0]["maxhp"]))
 
+    # 10) 一键召回（G 键）：远处的 AI 立刻拉回身边，近处的不动
+    e = core.GameEngine()
+    e.reset()
+    e.ai_pid = 1
+    e.players[0]["x"] = 20 * T
+    e.players[1]["x"] = 90 * T
+    e.players[1]["y"] = 19 * T
+    ok = e.recall_ally()
+    check("召回：远处同伴被拉回身边", ok and abs(e.players[1]["x"] - e.players[0]["x"]) < 120,
+          "AI x=%.1f 玩家 x=%.1f" % (e.players[1]["x"] / T, e.players[0]["x"] / T))
+    check("召回后卡住计时清零", e._ai_stuck == 0.0 and e._ai_dist_t == 0.0)
+
+    near_x = 21 * T
+    e.players[1]["x"] = near_x
+    e.players[1]["y"] = 19 * T
+    e.recall_ally()
+    check("召回：本来就在身边时不传送", abs(e.players[1]["x"] - near_x) < 1.0,
+          "AI x=%.1f" % (e.players[1]["x"] / T))
+
+    # 11) 泛光（画质档位）不能崩、不能改画面尺寸
+    try:
+        r = R.WorldRenderer()
+        for q in (0, 1, 2):
+            theme.quality = q
+            sfc = pygame.Surface((320, 180))
+            r._bloom(sfc, 0.4)
+        theme.quality = 1
+        check("泛光在三个画质档位下都不崩", True)
+    except Exception as exc:
+        check("泛光在三个画质档位下都不崩", False, repr(exc))
+
 
 # ---------------------------------------------------------------- 网络
 def test_net():

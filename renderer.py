@@ -450,6 +450,7 @@ class WorldRenderer:
             r = i * 10
             pygame.draw.circle(self._portal_glow, (255, 210, 130, 10),
                                (110, 110), r)
+        self._rune_ring = None       # 符文环贴图（懒建一次，之后只做旋转）
 
     # ---- 深度（到最近暴露顶面的距离）----
     def _depth(self, gx, gy, solid_fn):
@@ -520,6 +521,12 @@ class WorldRenderer:
         # 前景
         self._draw_foreground(surf, cam_x, cam_y, t, region)
 
+        # ---- 泛光：缩图提取高光再叠回原图 ----
+        # 这是最便宜的"画质提升"：所有发光的东西（岩浆、传送门、火球、
+        # 武器核心）会真的往外晕开，而不是一块死亮的像素。
+        if getattr(theme, "quality", 1) >= 1:
+            self._bloom(surf, 0.46 if theme.quality >= 2 else 0.34, 122)
+
         # ---- 暮色：色调随进程沉入夜色 + 视野收窄（st["dusk"] 0..1）----
         try:
             dk = float(st.get("dusk", 0.0) or 0.0)
@@ -553,6 +560,26 @@ class WorldRenderer:
                 v2 = self._vig_mask.copy()
                 v2.fill((6, 8, 18, va), special_flags=pygame.BLEND_RGBA_MULT)
                 surf.blit(v2, (0, 0))
+
+    def _bloom(self, surf, strength=0.4, thresh=96):
+        """廉价泛光：缩小 -> 减掉中灰只留高光 -> 放大叠回。
+
+        全屏两次 smoothscale，实测约 1~2ms，比逐物体画辉光划算得多。
+        """
+        try:
+            w, h = surf.get_size()
+            sw, sh = max(1, w // 3), max(1, h // 3)
+            small = pygame.transform.smoothscale(surf, (sw, sh))
+            dark = pygame.Surface((sw, sh))
+            dark.fill((thresh, thresh, thresh))
+            small.blit(dark, (0, 0), special_flags=pygame.BLEND_RGB_SUB)
+            big = pygame.transform.smoothscale(small, (w, h))
+            f = int(255 * max(0.0, min(1.0, strength)))
+            if f < 255:
+                big.fill((f, f, f), special_flags=pygame.BLEND_RGB_MULT)
+            surf.blit(big, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        except Exception:
+            pass
 
     # ==================================================================
     # 地形
@@ -1438,42 +1465,83 @@ class WorldRenderer:
     # ==================================================================
     # 传送门
     # ==================================================================
+    def _portal_ring(self, size=160):
+        """预渲染符文环：细环 + 24 道刻度 + 4 个大符点。"""
+        img = pygame.Surface((size, size), pygame.SRCALPHA)
+        c = size // 2
+        r = c - 7
+        pygame.draw.circle(img, (255, 236, 190, 110), (c, c), r, 1)
+        pygame.draw.circle(img, (255, 206, 140, 55), (c, c), r - 6, 1)
+        n = 24
+        for i in range(n):
+            a = i * 2 * math.pi / n
+            inner = r - (16 if i % 3 == 0 else 10)
+            x1 = c + math.cos(a) * (r - 3)
+            y1 = c + math.sin(a) * (r - 3)
+            x2 = c + math.cos(a) * inner
+            y2 = c + math.sin(a) * inner
+            pygame.draw.line(img, (255, 246, 214, 175), (x1, y1), (x2, y2), 2)
+        for i in range(4):
+            a = i * math.pi / 2 + math.pi / 4
+            pygame.draw.circle(img, (255, 250, 228, 230),
+                               (int(c + math.cos(a) * (r - 20)),
+                                int(c + math.sin(a) * (r - 20))), 3)
+        return img
+
     def _draw_portal(self, surf, cam_x, cam_y, t, st):
+        """祭坛传送门：石拱 + 三层反向旋转符文环 + 内旋粒子流 + 地面光池。"""
         px = core.PORTAL_RECT[0] - cam_x
-        if px > surf.get_width() + 260 or px < -320:
+        if px > surf.get_width() + 300 or px < -360:
             return
         active = st.get("portal")
         base_y = 15 * TILE - cam_y
         cx, cy = px + 80, base_y - 66
-        # 祭坛：两级石阶 + 砖缝
         wpx = core.PORTAL_RECT[2]
-        pygame.draw.rect(surf, (46, 44, 54), (px - 14, base_y - 22, wpx + 28, 22))
-        pygame.draw.rect(surf, (74, 70, 84), (px - 14, base_y - 22, wpx + 28, 4))
-        for i in range(5):
-            bx = px - 14 + i * (wpx + 28) // 4
-            pygame.draw.line(surf, (34, 32, 40), (bx, base_y - 18), (bx, base_y), 1)
-        pygame.draw.rect(surf, (60, 56, 68), (px + 18, base_y - 28, wpx - 36, 8))
-        pygame.draw.rect(surf, (92, 88, 104), (px + 18, base_y - 28, wpx - 36, 2))
+
+        # ---------- 祭坛基座 ----------
+        pygame.draw.rect(surf, (40, 38, 48), (px - 22, base_y - 26, wpx + 44, 26))
+        pygame.draw.rect(surf, (68, 64, 78), (px - 22, base_y - 26, wpx + 44, 4))
+        pygame.draw.rect(surf, (88, 82, 100), (px - 22, base_y - 26, wpx + 44, 1))
+        for i in range(6):
+            bx = px - 22 + i * (wpx + 44) // 5
+            pygame.draw.line(surf, (30, 28, 36), (bx, base_y - 22), (bx, base_y), 1)
+        pygame.draw.rect(surf, (56, 52, 64), (px + 14, base_y - 34, wpx - 28, 9))
+        pygame.draw.rect(surf, (94, 88, 106), (px + 14, base_y - 34, wpx - 28, 2))
+
+        # 祭坛缝隙里的辉光（激活后整条缝亮起来）
+        _seam = (255, 196, 120) if active else (128, 104, 168)
+        for i in range(6):
+            bx = px - 22 + i * (wpx + 44) // 5
+            if active:
+                theme.glow_circle(surf, (bx, base_y - 6), 9, _seam, 0.28, 2)
+
         if not active:
+            # ---------- 封印状态 ----------
             stone, hi, lo = (58, 54, 66), (88, 82, 96), (38, 36, 46)
-            # 立柱
+            pulse = 0.5 + 0.5 * math.sin(t * 1.8)
+            theme.glow_circle(surf, (cx, cy - 6), 74, (120, 96, 190), 0.10 + 0.10 * pulse, 3)
             for side in (-1, 1):
                 x0 = cx + side * 46 - 11
                 pygame.draw.rect(surf, stone, (x0, cy - 50, 22, 96))
                 pygame.draw.rect(surf, hi, (x0, cy - 50, 22, 3))
                 for by in range(0, 96, 16):
                     pygame.draw.line(surf, lo, (x0, cy - 50 + by), (x0 + 21, cy - 50 + by), 1)
-                # 左侧受岩浆环境光：暖色边光把石拱"放进"场景里
-                pygame.draw.line(surf, (150, 86, 56),
-                                 (x0, cy - 46), (x0, cy + 44), 2)
-            # 拱顶
+                pygame.draw.line(surf, (150, 86, 56), (x0, cy - 46), (x0, cy + 44), 2)
             pygame.draw.ellipse(surf, stone, (cx - 58, cy - 76, 116, 48))
             pygame.draw.ellipse(surf, hi, (cx - 58, cy - 76, 116, 48), 3)
             pygame.draw.arc(surf, (160, 92, 60), (cx - 58, cy - 76, 116, 48),
                             math.radians(150), math.radians(320), 2)
-            # 内部虚空
             pygame.draw.ellipse(surf, (16, 14, 22), (cx - 38, cy - 56, 76, 92))
-            # 缓慢明灭的封印符文
+            if self._rune_ring is None:
+                self._rune_ring = self._portal_ring(160)
+            try:
+                ring = pygame.transform.rotozoom(self._rune_ring, -t * 12.0, 0.44)
+                ring = pygame.transform.smoothscale(
+                    ring, (int(ring.get_width() * 0.92), int(ring.get_height() * 1.10)))
+                surf.blit(ring, ring.get_rect(center=(cx, cy - 8)),
+                          special_flags=pygame.BLEND_RGBA_ADD)
+            except Exception:
+                pass
             for i in range(6):
                 a = t * 0.7 + i * 1.05
                 rx = cx + math.cos(a) * 22
@@ -1483,36 +1551,86 @@ class WorldRenderer:
                                    (int(rx), int(ry)), 2)
             theme.text(surf, "封印中", (cx, cy - 96), "small", (146, 136, 178), align="center")
             return
-        # 柔和外辉
-        theme.glow_circle(surf, (cx, cy), 86, (255, 198, 130), 0.34, 4)
-        # 石制门框
-        pygame.draw.ellipse(surf, (62, 56, 72), (cx - 58, cy - 72, 116, 144), 11)
-        pygame.draw.ellipse(surf, (104, 96, 116), (cx - 58, cy - 72, 116, 144), 2)
-        # 漩涡：多层相位错开的椭圆，形成流动感
-        for i in range(7):
-            a = t * 1.7 + i * 0.85
-            rx = 40 + math.sin(a) * 7
-            ry = 52 + math.cos(a * 1.27) * 8
-            k = (math.sin(a * 0.8) * 0.5 + 0.5)
-            col = theme.mix((120, 220, 255), (240, 150, 220), k)
-            alpha = 90 + int(50 * (0.5 + 0.5 * math.sin(a * 1.4)))
-            layer = pygame.Surface((int(rx * 2) + 6, int(ry * 2) + 6), pygame.SRCALPHA)
-            pygame.draw.ellipse(layer, theme.alpha_color(col, alpha),
-                                (0, 0, int(rx * 2), int(ry * 2)), 3)
-            surf.blit(layer, (cx - rx, cy - ry))
-        # 内芯（半透明，让站进去的角色依然可见）
-        core_s = pygame.Surface((74, 104), pygame.SRCALPHA)
-        for i in range(104):
-            f = 1.0 - abs(i - 52) / 52.0
-            pygame.draw.line(core_s, (255, 236, 200, int(110 * f)), (0, i), (74, i))
-        surf.blit(core_s, (cx - 37, cy - 52))
-        # 环绕光点
-        for i in range(5):
-            a = -t * 1.9 + i * 1.26
-            sx = cx + math.cos(a) * 58
-            sy = cy + math.sin(a) * 68
-            theme.glow_circle(surf, (sx, sy), 7, (255, 236, 190), 0.7, 3)
 
+        # ---------- 激活状态 ----------
+        breath = 0.5 + 0.5 * math.sin(t * 1.35)
+        # 1) 地面光池
+        theme.glow_circle(surf, (cx, base_y - 6), 96, (255, 186, 110), 0.22 + 0.06 * breath, 3)
+        theme.glow_circle(surf, (cx, base_y - 6), 58, (255, 224, 170), 0.24, 2)
+        # 2) 大范围外辉（三层不同半径，形成柔和的衰减）
+        theme.glow_circle(surf, (cx, cy), 132, (255, 168, 96), 0.11 + 0.04 * breath, 3)
+        theme.glow_circle(surf, (cx, cy), 92, (255, 196, 128), 0.16, 3)
+        theme.glow_circle(surf, (cx, cy), 58, (255, 232, 190), 0.18, 2)
+
+        # 3) 石制门框：外框 + 内发光边
+        pygame.draw.ellipse(surf, (62, 56, 72), (cx - 60, cy - 74, 120, 148), 12)
+        pygame.draw.ellipse(surf, (104, 96, 116), (cx - 60, cy - 74, 120, 148), 2)
+        pygame.draw.ellipse(surf, (168, 150, 180), (cx - 48, cy - 60, 96, 122), 1)
+        for i in range(10):
+            a = i * math.pi * 2 / 10 + t * 0.22
+            bx = cx + math.cos(a) * 60
+            by = cy + math.sin(a) * 74
+            theme.glow_circle(surf, (bx, by), 5, (255, 220, 160), 0.45, 2)
+
+        # 4) 内旋粒子流：黄金角螺旋，越靠近中心越亮
+        for i in range(26):
+            ph = (t * 0.42 + i / 26.0) % 1.0
+            ang = i * 2.3999 + t * 1.55
+            rad = 1.0 - ph
+            ppx = cx + math.cos(ang) * 62 * rad
+            ppy = cy + math.sin(ang) * 78 * rad
+            inten = 0.16 + 0.52 * (ph ** 1.4)
+            col = theme.mix((150, 224, 255), (255, 232, 186), ph)
+            theme.glow_circle(surf, (ppx, ppy), 4 + int(4 * ph), col, inten, 2)
+
+        # 5) 三层反向旋转的符文环（越内越快，营造纵深）
+        if self._rune_ring is None:
+            self._rune_ring = self._portal_ring(160)
+        rings = ((1.00, t * 22.0, (255, 214, 150)),
+                 (0.78, -t * 34.0, (140, 208, 255)),
+                 (0.54, t * 52.0, (255, 158, 226)))
+        for scale, ang, col in rings:
+            try:
+                ring = pygame.transform.rotozoom(self._rune_ring, ang, scale)
+                ring = pygame.transform.smoothscale(
+                    ring, (int(ring.get_width() * 0.86),
+                           int(ring.get_height() * 1.06)))
+                # 先按环色调乘一遍，三圈才有颜色区分（否则叠出来全是白的）
+                ring.fill((col[0], col[1], col[2], 255),
+                          special_flags=pygame.BLEND_RGBA_MULT)
+                surf.blit(ring, ring.get_rect(center=(cx, cy)),
+                          special_flags=pygame.BLEND_RGBA_ADD)
+            except Exception:
+                pass
+
+        # 6) 内芯：椭圆柔光（不是矩形！否则会变成一块白板）
+        core_s = pygame.Surface((76, 108), pygame.SRCALPHA)
+        for i in range(108):
+            f = 1.0 - abs(i - 54) / 54.0
+            half = int(37 * (f ** 0.55))
+            aa = int((32 + 14 * breath) * (f ** 1.35))
+            if half > 0 and aa > 0:
+                pygame.draw.line(core_s, (255, 238, 208, aa), (38 - half, i),
+                                 (38 + half, i))
+        surf.blit(core_s, (cx - 38, cy - 54), special_flags=pygame.BLEND_RGBA_ADD)
+        theme.glow_circle(surf, (cx, cy), 34, (255, 236, 198), 0.13 + 0.05 * breath, 2)
+
+        # 7) 上升光尘
+        for i in range(14):
+            ph = (t * 0.55 + i * 0.071) % 1.0
+            mx = cx + math.sin(i * 2.1 + t * 0.9) * (16 + 10 * ph)
+            my = base_y - 4 - ph * 118
+            a = int(150 * (1.0 - ph) ** 1.3)
+            if a > 6:
+                pygame.draw.circle(surf, (255, 238, 200, a), (int(mx), int(my)),
+                                   1 + int(2 * (1.0 - ph)))
+
+        # 8) 环绕光点
+        for i in range(6):
+            a = -t * 1.9 + i * 1.047
+            sx = cx + math.cos(a) * 66
+            sy = cy + math.sin(a) * 82
+            theme.glow_circle(surf, (sx, sy), 8, (255, 240, 196), 0.62, 3)
 
     # ==================================================================
     # 实体

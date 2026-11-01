@@ -172,6 +172,7 @@ SIZES = {
     "sub": 22, "title": 28, "h1": 38, "h2": 48, "hero": 64, "mega": 84,
 }
 ui_scale = 1.0     # 全局 UI 字号倍率（设置里可调，辅助低视力玩家）
+quality = 1        # 画质档位 0流畅 / 1标准 / 2精致（控制泛光、粒子密度等）
 
 _text_cache = {}
 _TEXT_CACHE_MAX = 600
