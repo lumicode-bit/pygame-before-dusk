@@ -1985,6 +1985,11 @@ class App:
                     self.particles.burst("debris", x, y, (168, 158, 146), count=16, power=1.3)
                     self.floats.add(x, y - 10, "岩墙崩塌", theme.GOLD_LIGHT, "small")
                     self.cam.add_trauma(0.32)
+                elif k == "stray_clear":
+                    # 卡在地形里的残余怪被兜底清掉了，给个明确的视觉反馈，
+                    # 免得玩家以为"怪怎么突然没了"
+                    self.particles.burst("dust", x, y, (150, 138, 170), count=14, power=1.1)
+                    self.floats.add(x, y - 20, "残敌退散", (176, 168, 190), "small")
                 elif k == "die":
                     kind = ev[3] if len(ev) > 3 else "ground"
                     if kind == "boss":

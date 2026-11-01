@@ -57,7 +57,9 @@ def run(e, n, inputs=None):
 
 
 def _tmp_json(name, obj):
-    p = os.path.join(os.getcwd(), name)
+    # 一律写进临时目录，别往项目根目录扔文件 —— 一来脏，二来测试环境的
+    # 删除保护会把 os.remove 拦下来（bulk-delete guard），直接 SystemExit(1)。
+    p = os.path.join(_TMPDIR, name)
     with open(p, "w", encoding="utf-8") as f:
         json.dump(obj, f)
     return p
@@ -553,11 +555,10 @@ def test_files():
               str({k: app.records[k] for k in ("runs", "best_kills", "best_score")}))
     finally:
         M.RECORDS_FILE = old
-        os.remove(p)
 
     # 自定义键位必须能重启读回（之前 _commit_settings 不写 keys，
     # load_settings 又按白名单把它丢掉，改键重启就回默认）
-    p = os.path.join(os.getcwd(), "_t_keys.json")
+    p = os.path.join(_TMPDIR, "_t_keys.json")
     old_s = M.SETTINGS_FILE
     M.SETTINGS_FILE = p
     old_map = {k: list(v) for k, v in M.KEYMAP.items()}
@@ -573,8 +574,6 @@ def test_files():
     finally:
         M.SETTINGS_FILE = old_s
         M.KEYMAP = old_map
-        if os.path.exists(p):
-            os.remove(p)
 
     p = _tmp_json("_t_settings.json", {"master": "loud", "music": -5, "sfx": 99,
                                        "fullscreen": "yes", "quality": "高"})
@@ -586,7 +585,6 @@ def test_files():
         check("损坏的设置被收敛到合法范围", not bad, str(bad))
     finally:
         M.SETTINGS_FILE = old
-        os.remove(p)
 
 
 # ---------------------------------------------------------------- AI 通行
@@ -688,6 +686,33 @@ def test_ai_traverse():
                   1: core.make_ai_input(1, eng, 0)}, core.TICK_DT)
     check("断崖底不会被过岩浆分支钉住", eng.players[0]["x"] > 50 * T,
           "弓 x=%.1f" % (eng.players[0]["x"] / T))
+
+    # 8) 软锁兜底：波次推进要求场上没有活怪，只要有一只卡在玩家上不去的
+    #    地方，Boss 就永远不刷，玩家只能在祭坛干等。
+    def _stray_case(pin_x, player_x, seconds=12.0):
+        e = core.GameEngine()
+        e.reset()
+        e.wave = 2
+        e.wave2_spawned = True
+        e.wave1_spawned = True
+        m = core.Monster(7001, "ground", pin_x, 19 * T - core.MONSTER_H)
+        e.monsters = [m]
+        e.players[0]["x"] = player_x
+        e.players[1]["x"] = player_x + 40
+        t = 0.0
+        while t < seconds and m in e.monsters:
+            m.x = float(pin_x)          # 钉死在原地，模拟"卡住"
+            e.step({}, core.TICK_DT)
+            t += core.TICK_DT
+        return e, m, t
+
+    e, m, t = _stray_case(20 * T, 130 * T)
+    check("卡死的残余怪会被兜底清掉", m not in e.monsters, "%.1fs 仍在" % t)
+    check("清掉后 Boss 正常刷出", e.wave >= 3 or e.boss_spawned, "wave=%d" % e.wave)
+
+    # 反向：怪就在玩家身边（哪怕不动）绝不能清 —— 那是正常战斗
+    e, m, _t = _stray_case(130 * T, 130 * T, seconds=12.0)
+    check("贴脸不动的怪不会被误清", m in e.monsters)
 
 
 # ---------------------------------------------------------------- 网络

@@ -91,6 +91,14 @@ DUO_PLATE_COLS = (114, 118)       # 两块必须同时踩住的机关
 DUO_PLATE_RANGE = 30
 DUO_HOLD_TIME = 0.45
 
+# ---- 残余怪兜底（防软锁）----
+# 波次推进要求"场上没有活怪"。只要有一只怪卡在玩家上不去的地方
+# （深坑边 vx=0、卡在平台缝里、被地形挡住），Boss 就永远不刷，
+# 玩家只能在祭坛干等。这里对"很久没位移 + 离所有人都很远"的怪做清理。
+STRAY_STILL_TIME = 6.0     # 连续多少秒没有横向位移算"卡住"
+STRAY_MIN_DIST = 360.0     # 且离所有活着的玩家都超过这个距离
+STRAY_GRACE = 2.0          # 满足条件持续多久才真的清掉（防抖）
+
 # ---- 藤蔓滑索（多层地图的纵向交通）----
 # 藤蔓端点约定：
 #   上端 y = 平台顶 - 6  （角色脚 = 绳点 +6，正好踩在平台面上）
@@ -692,6 +700,8 @@ class GameEngine:
         self.difficulty = 1.0        # 难度倍率：0.7 / 1.0 / 1.4
         self.duo_gate_open = False
         self._duo_hold = 0.0
+        self._stray_track = {}      # mid -> [上次 x, 连续没位移的秒数]
+        self._stray_t = 0.0
         self.vines = [list(v) for v in VINES]
         self.vents = [dict(v) for v in VENTS]
         self.weapon_taken = False
@@ -719,6 +729,67 @@ class GameEngine:
         self._wave1_timer = 5.0
         self._spawn_tower()
         self.events.append(("reset", 0, 0))
+
+    def _cull_strays(self, dt):
+        """兜底：把卡在玩家够不到的地方的残余怪判为"退散"。
+
+        波次推进要求场上没有活怪（`_alive` 为空）。只要有一只卡住 ——
+        比如站在深坑边 vx=0、卡在平台缝里、被地形顶住 —— Boss 就永远不刷，
+        玩家只能在祭坛干等，这就是软锁。
+
+        判据刻意保守：**连续 6 秒横向位移小于 2px**（真在追人的怪每帧都在动）
+        且**离所有活着的玩家都超过 360px**（贴脸打的怪不算）。Boss 不参与，
+        它本来就有站桩蓄力的状态。
+        """
+        try:
+            if self.win or self.portal_active:
+                self._stray_t = 0.0
+                self._stray_track.clear()
+                return
+            alive_p = [p for p in self.players.values() if p["hp"] > 0]
+            live = [m for m in self.monsters if not m.tower and m.kind != "boss"]
+            if not live or not alive_p:
+                self._stray_t = 0.0
+                self._stray_track.clear()
+                return
+
+            track = self._stray_track
+            seen = set()
+            stray = []
+            for m in live:
+                seen.add(m.mid)
+                rec = track.get(m.mid)
+                if rec is None:
+                    track[m.mid] = [m.x, 0.0]
+                    continue
+                if abs(m.x - rec[0]) < 2.0:
+                    rec[1] += dt
+                else:
+                    rec[0] = m.x
+                    rec[1] = 0.0
+                if rec[1] >= STRAY_STILL_TIME:
+                    if not any(abs(m.x - p["x"]) < STRAY_MIN_DIST for p in alive_p):
+                        stray.append(m)
+            for mid in list(track):
+                if mid not in seen:
+                    track.pop(mid, None)
+
+            if stray:
+                self._stray_t += dt
+            else:
+                self._stray_t = max(0.0, self._stray_t - dt * 2.0)
+
+            if stray and self._stray_t >= STRAY_GRACE:
+                self._stray_t = 0.0
+                for m in stray:
+                    if m in self.monsters:
+                        self.monsters.remove(m)
+                        track.pop(m.mid, None)
+                self.msg = "残余的怪物退散了……"
+                self.events.append(("stray_clear", int(stray[0].x),
+                                    int(stray[0].y - 10)))
+        except Exception as e:
+            write_log("残余怪清理异常: %r" % (e,))
 
     def _spawn_wave(self, w):
         if w == 1:
@@ -871,6 +942,7 @@ class GameEngine:
             #    注意：裂隙里还没出来的怪也算"没清完"，否则 Boss 刚开黑洞
             #    _alive 还是空 -> wave 走到 3 的 else 分支 -> 传送门提前开启，
             #    玩家可以直接绕过 Boss 通关。
+            self._cull_strays(dt)
             _alive = [m for m in self.monsters if not m.tower]
             if (not self.portal_active and len(_alive) == 0 and not self.rifts
                     and (self.wave1_spawned or self.wave > 1)):

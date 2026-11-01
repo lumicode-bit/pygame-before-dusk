@@ -121,6 +121,10 @@ def main():
     print("超时 %.0fs 未通关。路标 %d/%d，队伍最靠后 x=%.1f 格" %
           (seconds, wp, len(WAYPOINTS) - 1, best_x / TILE))
     print("墙体剩余: %s" % sorted(eng.rocks.items()))
+    print("残留怪物: %s" % [(m.kind, round(m.x / TILE, 1), round(m.y / TILE, 1),
+                            int(m.hp)) for m in eng.monsters])
+    print("波次=%d 闸门=%s 传送门=%s 击杀=%d" %
+          (eng.wave, eng.duo_gate_open, eng.portal_active, eng.kills))
     return 1
 
 

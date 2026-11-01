@@ -25,10 +25,17 @@ def check(name, cond, detail=""):
 
 
 def sentinel(eng):
-    """一只远处的哨兵怪：阻止波次推进，也不干扰坑边测试。"""
+    """阻止波次推进（不再刷新怪），也不干扰坑边测试。
+
+    原来是放一只"远处的哨兵怪"占住 _alive。引擎加了"卡死的残余怪会被
+    兜底清掉"之后，那只哨兵走到 A 断崖边就卡住（gap>=3 -> vx=0），
+    8 秒后被清掉，反而把第二波放出来 —— 改成直接把波次状态置为
+    "第二波已刷且场上无怪"，这样不会再刷任何东西。
+    """
     eng.monsters.clear()
     eng.wave1_spawned = True          # 关掉开局安全窗口的自动刷怪
-    eng.monsters.append(core.Monster(9999, "ground", 2 * T + 16, 19 * T - core.MONSTER_H))
+    eng.wave = 2
+    eng.wave2_spawned = True
 
 
 print("T1 AI 借板跨越深坑（左 -> 右，含归队兜底）...")
