@@ -258,9 +258,13 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
     elif pose == "block":
         bob = 1
     elif pose == "swing":
-        # 0 = 起手（身体略后仰、剑举高），1 = 收招（前倾、剑劈下）
-        lean = 1 if frame else -1
-        bob = 0 if frame else -1
+        # 4 帧：0 预备后仰 / 1 加速过肩 / 2 命中前倾 / 3 收招回位
+        lean = (-1, 0, 2, 1)[frame % 4]
+        bob = (-1, 0, 1, 0)[frame % 4]
+    elif pose == "shoot":
+        # 3 帧：0 满弓 / 1 松弦回弹 / 2 收势
+        lean = (-1, 0, 1)[frame % 3]
+        bob = (0, 0, 0)[frame % 3]
 
     top = 4 + bob
     cx = 18 + lean                       # 身体中轴
@@ -412,8 +416,23 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
         # 弓梢
         R(int(limb[0][0]) - 1, top + 6, int(limb[0][0]) + 1, top + 8, 5)
         R(int(limb[-1][0]) - 1, top + 28, int(limb[-1][0]) + 1, top + 30, 5)
-        # 弓弦
-        Ln(int(bx) + 1, top + 7, int(bx) + 1, top + 29, 11)
+        # 弓弦 + 拉弦手：射击动画的 3 帧
+        if pose == "shoot":
+            _f = frame % 3
+            # 弦被拉开的深度（0 帧拉满 -> 1 帧回弹 -> 2 帧归位）
+            _pull = (6, 2, 0)[_f]
+            _hx = int(bx) + 1 - _pull
+            _hy = top + 17 + (0, 0, 2)[_f]
+            Ln(int(bx) + 1, top + 7, _hx, _hy, 11)
+            Ln(_hx, _hy, int(bx) + 1, top + 29, 11)
+            # 拉弦的手臂
+            R(cx - 6, top + 14, cx - 3, top + 18, 1)
+            R(_hx - 1, _hy - 1, _hx + 1, _hy + 1, 8)      # 手
+            # 满弓时弦上搭着箭
+            if _f == 0:
+                Ln(int(bx) + 2, top + 17, _hx + 1, _hy, 5)
+        else:
+            Ln(int(bx) + 1, top + 7, int(bx) + 1, top + 29, 11)
         # 后臂
         R(cx - 7, top + 15, cx - 5, top + 21, 1)
     else:
@@ -421,20 +440,33 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
         R(cx + 5, top + 15, cx + 7, top + 22, 2)
         R(cx + 5, top + 21, cx + 8, top + 23, 5)          # 拳
         if pose == "swing":
-            # 挥剑：起手举高 / 收招劈下 —— 两个姿势都由渲染层按
-            # swing_dir 镜像，所以只画"朝右"这一套
-            if frame == 0:
-                R(cx + 4, top + 9, cx + 6, top + 15, 2)       # 上臂
-                R(cx + 5, top + 7, cx + 8, top + 10, 5)       # 拳
-                R(cx + 6, top + 8, cx + 9, top + 9, 8)        # 护手
-                Ln(cx + 8, top + 8, cx + 12, top + 0, 5)      # 剑身（斜上）
-                Ln(cx + 9, top + 8, cx + 13, top + 0, 11)     # 刃光
-            else:
-                R(cx + 5, top + 13, cx + 7, top + 18, 2)      # 上臂
-                R(cx + 7, top + 16, cx + 9, top + 18, 5)      # 拳
-                R(cx + 7, top + 16, cx + 10, top + 17, 8)     # 护手
-                Ln(cx + 9, top + 17, cx + 14, top + 25, 5)    # 剑身（斜下）
-                Ln(cx + 10, top + 17, cx + 15, top + 25, 11)  # 刃光
+            # 挥剑 4 帧（只画"朝右"一套，方向由渲染层镜像）
+            # 0 预备：剑后拉到肩后上方   1 加速：剑过肩
+            # 2 命中：剑劈到最前最下     3 收招：剑收回体侧
+            _S = (
+                # (上臂x0,y0,x1,y1) (拳) (护手) (剑起点) (剑终点)
+                ((cx + 3, top + 8, cx + 5, top + 14),
+                 (cx + 3, top + 6, cx + 6, top + 9),
+                 (cx + 4, top + 7, cx + 7, top + 8),
+                 (cx + 6, top + 6), (cx + 9, top - 2)),
+                ((cx + 4, top + 10, cx + 6, top + 16),
+                 (cx + 5, top + 8, cx + 8, top + 11),
+                 (cx + 6, top + 9, cx + 9, top + 10),
+                 (cx + 8, top + 9), (cx + 13, top + 3)),
+                ((cx + 6, top + 13, cx + 8, top + 19),
+                 (cx + 7, top + 15, cx + 10, top + 18),
+                 (cx + 7, top + 15, cx + 11, top + 16),
+                 (cx + 10, top + 16), (cx + 17, top + 24)),
+                ((cx + 5, top + 15, cx + 7, top + 20),
+                 (cx + 6, top + 17, cx + 9, top + 20),
+                 (cx + 6, top + 17, cx + 10, top + 18),
+                 (cx + 9, top + 19), (cx + 13, top + 27)),
+            )[frame % 4]
+            R(*_S[0], 2)
+            R(*_S[1], 5)
+            R(*_S[2], 8)
+            Ln(_S[3][0], _S[3][1], _S[4][0], _S[4][1], 5)
+            Ln(_S[3][0] + 1, _S[3][1], _S[4][0] + 1, _S[4][1], 11)
         elif pose == "block":
             # 举盾格挡：大盾立在前方
             P([(cx + 5, top + 9), (cx + 12, top + 11), (cx + 12, top + 24),
@@ -713,7 +745,8 @@ MPAL_FLY = {
 # --------------------------------------------------------------------------
 _cache = {}
 POSES = ("idle0", "idle1", "run0", "run1", "run2", "run3", "jump", "fall",
-         "block", "swing0", "swing1")
+         "block", "swing0", "swing1", "swing2", "swing3",
+         "shoot0", "shoot1", "shoot2")
 
 
 def get_char(kind, pose="idle0", skin=None):
@@ -723,12 +756,15 @@ def get_char(kind, pose="idle0", skin=None):
     s = _cache.get(key)
     if s is not None:
         return s
-    frame = int(pose[-1]) if (pose.startswith("run") or pose.startswith("swing")) else 0
+    frame = (int(pose[-1]) if (pose.startswith("run") or pose.startswith("swing")
+                               or pose.startswith("shoot")) else 0)
     base_pose = "idle" if pose.startswith("idle") else pose
     if pose.startswith("run"):
         base_pose = "run"
     elif pose.startswith("swing"):
         base_pose = "swing"
+    elif pose.startswith("shoot"):
+        base_pose = "shoot"
     g = _character(kind, base_pose, frame, skin_style(kind, skin))
     pal = skin_palette(kind, skin)
     s = _render(g, pal)

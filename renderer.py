@@ -2430,8 +2430,13 @@ class WorldRenderer:
             elif p.get("blocking"):
                 pose = "block"
             elif swinging:
-                # 前半段是起手（剑举高），后半段是收招（剑劈下）
-                pose = "swing0" if (1.0 - sw_v) < 0.45 else "swing1"
+                # 4 帧：预备 -> 加速 -> 命中 -> 收招
+                _pr = 1.0 - sw_v
+                pose = "swing%d" % (0 if _pr < 0.22 else
+                                    (1 if _pr < 0.45 else (2 if _pr < 0.70 else 3)))
+            elif pid == 0 and p.get("shoot_flash", 0.0) > 0.02:
+                _fl = p.get("shoot_flash", 0.0)
+                pose = "shoot%d" % (0 if _fl > 0.62 else (1 if _fl > 0.28 else 2))
             elif p.get("moving"):
                 pose = "run%d" % (int(t * 12 + pid * 2) % 4)
             else:
@@ -2450,6 +2455,19 @@ class WorldRenderer:
                 img = pygame.transform.scale(
                     img, (max(4, int(w0 * (1.0 + 0.20 * land))),
                           max(4, int(h0 * (1.0 - 0.18 * land)))))
+            # 攻击形变：挥砍命中瞬间横向拉伸，松弦瞬间后坐
+            _sx = _sy = 1.0
+            if swinging:
+                _pr = 1.0 - sw_v
+                if 0.40 <= _pr < 0.72:
+                    _k = 1.0 - abs(_pr - 0.56) / 0.16
+                    _sx, _sy = 1.0 + 0.13 * _k, 1.0 - 0.07 * _k
+            elif pid == 0 and p.get("shoot_flash", 0.0) > 0.62:
+                _sx, _sy = 0.95, 1.06
+            if abs(_sx - 1.0) > 0.005 or abs(_sy - 1.0) > 0.005:
+                w0, h0 = img.get_size()
+                img = pygame.transform.scale(
+                    img, (max(4, int(w0 * _sx)), max(4, int(h0 * _sy))))
             rect = img.get_rect(midbottom=(x, y + 4))
 
             theme.soft_shadow(surf, x, y, 30, 8, 95)
@@ -2461,6 +2479,15 @@ class WorldRenderer:
                     ghost.set_alpha(70 - k * 18)
                     surf.blit(ghost, rect.move(-p["facing"] * k * 9, 0))
 
+            # 挥砍残影：攻击中段拖两帧半透明的自己，速度感主要靠这个
+            if swinging:
+                _pr2 = 1.0 - sw_v
+                if 0.20 < _pr2 < 0.82:
+                    _gk = max(0.0, 1.0 - abs(_pr2 - 0.5) / 0.32)
+                    for _i, _off in ((1, 7), (2, 15)):
+                        _g2 = img.copy()
+                        _g2.set_alpha(int(78 * _gk / _i))
+                        surf.blit(_g2, rect.move(-p["facing"] * _off, 0))
             inv = p.get("invuln", 0)
             if inv > 0 and int(t * 22) % 2 == 0:
                 ghost = img.copy()

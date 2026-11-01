@@ -1350,7 +1350,8 @@ class GameEngine:
             if pid == 1:
                 p["sword_cd"] = max(0.0, p["sword_cd"] - dt)
                 p["swing"] = max(0.0, p["swing"] - dt * 3.2)
-                p["shoot_flash"] = max(0.0, p.get("shoot_flash", 0.0) - dt * 6.0)
+                # 3.0 而不是 6.0：松弦动画要放得出来（约 0.33 秒三帧）
+                p["shoot_flash"] = max(0.0, p.get("shoot_flash", 0.0) - dt * 3.0)
                 if inp.get("sword") and p["sword_cd"] <= 0:
                     p["sword_cd"] = 0.5
                     p["swing"] = 1.0
