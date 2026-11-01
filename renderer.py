@@ -1253,62 +1253,80 @@ class WorldRenderer:
                 continue
 
     def _draw_sky_crack(self, surf, cx, cy, t, ratio):
-        """天空裂缝（v2.13 落石前兆；v3 重构时误删，按原实现恢复）。"""
-        w = 34.0 + 74.0 * ratio
-        h = 8.0 + 36.0 * ratio
-        n = 11
+        """天空裂缝（落石前兆）：发光裂隙 + 放射碎纹 + 边缘碎屑。
+
+        层次：外辉 -> 深空内核 -> 锯齿口沿 -> 分叉细纹 -> 掉落碎屑。
+        """
+        w = 34.0 + 78.0 * ratio
+        h = 8.0 + 40.0 * ratio
+        n = 13
         top, bot = [], []
         for i in range(n + 1):
             f = i / float(n)
             x = cx - w * 0.5 + w * f
             taper = math.sin(f * math.pi) ** 0.55
-            tooth = (2.6 if i % 2 == 0 else -1.8) * ratio
-            jt = math.sin(f * 9.3 + t * 3.1) * (1.2 + 1.8 * ratio) + tooth
+            tooth = (2.8 if i % 2 == 0 else -2.0) * ratio
+            jt = math.sin(f * 9.3 + t * 3.1) * (1.2 + 2.0 * ratio) + tooth
             top.append((x, cy - h * taper * 0.5 + jt))
             bot.append((x, cy + h * taper * 0.5 - jt))
-        if ratio > 0.25:
-            rr = random.Random(int(cx) * 31 + 5)
-            for k in range(5):
-                side = -1.0 if k % 2 == 0 else 1.0
-                a0 = rr.uniform(-0.5, 0.5)
-                ln = (14 + rr.uniform(0, 22)) * ratio
-                x0 = cx + side * w * 0.42
-                y0 = cy + a0 * 6
-                pygame.draw.line(surf, theme.alpha_color((120, 68, 148), 130),
-                                 (x0, y0), (x0 + side * ln, y0 + a0 * ln * 0.7), 1)
-        poly = top + bot[::-1]
-        pygame.draw.polygon(surf, (9, 5, 11), poly)
-        pygame.draw.lines(surf, (78, 36, 90), False, top, 2)
-        pygame.draw.lines(surf, (78, 36, 90), False, bot, 2)
-        pygame.draw.lines(surf, (140, 92, 168), False,
-                          [(p[0], p[1] + 1) for p in top], 1)
-        if ratio > 0.3:
-            a = int(110 * (ratio - 0.3) / 0.7)
-            for i in range(1, n):
-                f = i / float(n)
-                tp = math.sin(f * math.pi)
-                if tp < 0.22:
-                    continue
-                yy = cy + (h * tp * 0.22) * (1 if i % 2 else -1)
-                pygame.draw.line(surf, theme.alpha_color((158, 92, 190), a),
-                                 (top[i][0], yy), (top[i][0] + 4, yy), 1)
-        rnd = random.Random(int(cx) * 13 + 7)
-        for i in range(4):
-            ph = (t * 0.9 + i * 0.25) % 1.0
-            xx = cx + rnd.uniform(-0.5, 0.5) * w
-            yy = cy + h * 0.5 + ph * 46
-            pygame.draw.circle(surf, theme.alpha_color((132, 112, 120),
-                                                       int(170 * (1.0 - ph))),
-                               (int(xx), int(yy)), 1 if ph > 0.5 else 2)
 
-    def _island_rock_poly(self, cx, cy, seed, scale=1.0):
-        rnd = random.Random(seed)
-        pts = []
-        for i in range(9):
-            a = i * math.pi * 2 / 9
-            rr = (14 + rnd.uniform(-3.2, 3.2)) * scale
-            pts.append((cx + math.cos(a) * rr, cy + math.sin(a) * rr))
-        return pts
+        # 外辉：裂缝整体在发光，越开越亮
+        theme.glow_circle(surf, (cx, cy), int(w * 0.62), (150, 92, 200),
+                          0.16 + 0.26 * ratio, 3)
+        theme.glow_circle(surf, (cx, cy), int(w * 0.34), (206, 158, 255),
+                          0.12 + 0.22 * ratio, 2)
+
+        # 放射碎纹（先画在底下，被裂口盖住中段）
+        if ratio > 0.2:
+            rr = random.Random(int(cx) * 31 + 5)
+            for k in range(9):
+                side = -1.0 if k % 2 == 0 else 1.0
+                a0 = rr.uniform(-0.7, 0.7)
+                ln = (16 + rr.uniform(0, 34)) * ratio
+                x0 = cx + side * w * 0.40
+                y0 = cy + a0 * h * 0.5
+                x1 = x0 + side * ln
+                y1 = y0 + a0 * ln * 0.8
+                pygame.draw.line(surf, theme.alpha_color((96, 52, 124), 150),
+                                 (x0, y0), (x1, y1), 1)
+                # 分叉
+                if k % 3 == 0:
+                    pygame.draw.line(surf, theme.alpha_color((120, 70, 150), 110),
+                                     (x1, y1), (x1 + side * ln * 0.45,
+                                                y1 + a0 * ln * 0.5 + 4), 1)
+
+        # 裂口本体：深空 -> 内缘冷光
+        poly = top + bot[::-1]
+        pygame.draw.polygon(surf, (7, 4, 10), poly)
+        inner = [(x * 0.82 + cx * 0.18, y * 0.82 + cy * 0.18) for x, y in poly]
+        pygame.draw.polygon(surf, theme.alpha_color((44, 18, 62), 210), inner)
+
+        # 口沿：暗紫描边 + 亮紫内缘 + 顶部高光
+        pygame.draw.lines(surf, (58, 24, 76), False, top, 3)
+        pygame.draw.lines(surf, (58, 24, 76), False, bot, 3)
+        pygame.draw.lines(surf, theme.alpha_color((176, 118, 220), 220), False,
+                          [(p[0], p[1] + 1) for p in top], 1)
+        pygame.draw.lines(surf, theme.alpha_color((150, 96, 200), 170), False,
+                          [(p[0], p[1] - 1) for p in bot], 1)
+
+        # 裂缝里透出的能量脉动
+        if ratio > 0.3:
+            k = (0.5 + 0.5 * math.sin(t * 6.5)) * ratio
+            theme.glow_circle(surf, (cx, cy), int(w * 0.22), (232, 186, 255),
+                              0.10 + 0.18 * k, 2)
+
+        # 边缘碎屑：小石块往下掉
+        if ratio > 0.35:
+            rr2 = random.Random(int(cx) * 17 + 3)
+            for k in range(7):
+                ph = (t * (0.9 + rr2.random() * 0.7) + rr2.random()) % 1.0
+                dx = rr2.uniform(-w * 0.45, w * 0.45)
+                dy = cy + ph * (40 + 60 * ratio)
+                a = int(200 * (1.0 - ph))
+                if a > 10:
+                    s2 = 1 + int(2 * (1.0 - ph))
+                    pygame.draw.rect(surf, (78, 60, 88, a),
+                                     (int(cx + dx), int(dy), s2, s2))
 
     def _draw_fall_rocks(self, surf, cam_x, cam_y, t, st):
         for r in st.get("fall_rocks", []):
@@ -1555,40 +1573,93 @@ class WorldRenderer:
                 theme.glow_circle(surf, (bx, base_y - 6), 9, _seam, 0.28, 2)
 
         if not active:
-            # ---------- 封印状态 ----------
-            stone, hi, lo = (58, 54, 66), (88, 82, 96), (38, 36, 46)
+            # ---------- 封印状态：凿刻石拱 + 旋转封印法阵 ----------
             pulse = 0.5 + 0.5 * math.sin(t * 1.8)
-            theme.glow_circle(surf, (cx, cy - 6), 74, (120, 96, 190), 0.10 + 0.10 * pulse, 3)
+            stone, hi, lo = (58, 54, 66), (92, 86, 100), (34, 32, 42)
+
+            # 地面一圈紫光（封印在渗漏能量）
+            theme.glow_circle(surf, (cx, base_y - 8), 76, (104, 76, 168),
+                              0.10 + 0.07 * pulse, 3)
+
+            # ---- 立柱：横向砌石 + 竖向刻槽 + 岩浆环境光 ----
             for side in (-1, 1):
                 x0 = cx + side * 46 - 11
                 pygame.draw.rect(surf, stone, (x0, cy - 50, 22, 96))
-                pygame.draw.rect(surf, hi, (x0, cy - 50, 22, 3))
                 for by in range(0, 96, 16):
-                    pygame.draw.line(surf, lo, (x0, cy - 50 + by), (x0 + 21, cy - 50 + by), 1)
-                pygame.draw.line(surf, (150, 86, 56), (x0, cy - 46), (x0, cy + 44), 2)
-            pygame.draw.ellipse(surf, stone, (cx - 58, cy - 76, 116, 48))
-            pygame.draw.ellipse(surf, hi, (cx - 58, cy - 76, 116, 48), 3)
-            pygame.draw.arc(surf, (160, 92, 60), (cx - 58, cy - 76, 116, 48),
-                            math.radians(150), math.radians(320), 2)
-            pygame.draw.ellipse(surf, (16, 14, 22), (cx - 38, cy - 56, 76, 92))
+                    pygame.draw.line(surf, lo, (x0, cy - 50 + by),
+                                     (x0 + 21, cy - 50 + by), 1)
+                    pygame.draw.line(surf, hi, (x0, cy - 50 + by + 1),
+                                     (x0 + 21, cy - 50 + by + 1), 1)
+                pygame.draw.line(surf, lo, (x0 + 10, cy - 48), (x0 + 10, cy + 44), 1)
+                pygame.draw.rect(surf, lo, (x0 + 19, cy - 50, 3, 96))
+                pygame.draw.line(surf, (156, 90, 58), (x0, cy - 46),
+                                 (x0, cy + 44), 2)
+
+            # ---- 拱顶：半环带（只画上半圈），两端落在立柱顶上 ----
+            _ao, _ai = [], []
+            for i in range(13):
+                a = math.pi + i * math.pi / 12.0
+                _ao.append((cx + math.cos(a) * 58, cy - 50 + math.sin(a) * 26))
+                _ai.append((cx + math.cos(a) * 39, cy - 50 + math.sin(a) * 17))
+            pygame.draw.polygon(surf, stone, _ao + _ai[::-1])
+            pygame.draw.lines(surf, hi, False, _ao, 2)
+            pygame.draw.lines(surf, lo, False, _ai, 1)
+            for i in range(1, 12, 2):                     # 楔形石接缝
+                pygame.draw.line(surf, lo, _ao[i], _ai[i], 1)
+            pygame.draw.lines(surf, (160, 92, 60), False,
+                              [(p[0], p[1] - 1) for p in _ao[:7]], 1)
+
+            # ---- 内部虚空 ----
+            pygame.draw.ellipse(surf, (14, 11, 20), (cx - 38, cy - 56, 76, 92))
+            theme.glow_circle(surf, (cx, cy - 8), 46, (86, 58, 140),
+                              0.12 + 0.10 * pulse, 2)
+
+            # ---- 封印法阵：外圈符文环 + 内六芒 + 中心符核 ----
             if self._rune_ring is None:
                 self._rune_ring = self._portal_ring(160)
             try:
-                ring = pygame.transform.rotozoom(self._rune_ring, -t * 12.0, 0.44)
+                ring = pygame.transform.rotozoom(self._rune_ring, -t * 12.0, 0.42)
                 ring = pygame.transform.smoothscale(
-                    ring, (int(ring.get_width() * 0.92), int(ring.get_height() * 1.10)))
+                    ring, (int(ring.get_width() * 0.92),
+                           int(ring.get_height() * 1.10)))
+                ring.fill((150, 116, 214), special_flags=pygame.BLEND_RGB_MULT)
                 surf.blit(ring, ring.get_rect(center=(cx, cy - 8)),
                           special_flags=pygame.BLEND_RGB_ADD)
             except Exception:
                 pass
+            for k in range(2):
+                ang = t * 0.5 + k * math.pi / 3
+                pts = []
+                for i in range(3):
+                    a = ang + i * 2 * math.pi / 3
+                    pts.append((cx + math.cos(a) * 26, cy - 8 + math.sin(a) * 30))
+                pygame.draw.polygon(surf, theme.alpha_color((138, 104, 206),
+                                                            110 + int(50 * pulse)),
+                                    pts, 1)
+            theme.glow_circle(surf, (cx, cy - 8), 13, (196, 158, 255),
+                              0.30 + 0.22 * pulse, 2)
+            pygame.draw.circle(surf, theme.alpha_color((226, 206, 255),
+                                                       200 + int(55 * pulse)),
+                               (int(cx), int(cy - 8)), 3, 1)
+
+            # ---- 环绕封印符点 ----
             for i in range(6):
-                a = t * 0.7 + i * 1.05
-                rx = cx + math.cos(a) * 22
-                ry = cy - 10 + math.sin(a * 1.3) * 28
-                al = 80 + int(70 * (0.5 + 0.5 * math.sin(t * 2.2 + i)))
-                pygame.draw.circle(surf, theme.alpha_color((150, 120, 220), al),
+                a = t * 0.7 + i * 1.047
+                rx = cx + math.cos(a) * 30
+                ry = cy - 8 + math.sin(a * 1.3) * 34
+                al = 90 + int(80 * (0.5 + 0.5 * math.sin(t * 2.2 + i)))
+                pygame.draw.circle(surf, theme.alpha_color((168, 138, 232), al),
                                    (int(rx), int(ry)), 2)
-            theme.text(surf, "封印中", (cx, cy - 96), "small", (146, 136, 178), align="center")
+
+            # ---- 拱顶垂下的锁链 ----
+            for side in (-1, 1):
+                for k in range(2):
+                    x0 = cx + side * (20 + k * 16)
+                    y0 = cy - 58
+                    for j in range(4):
+                        pygame.draw.circle(surf, (72, 66, 84),
+                                           (int(x0), int(y0 + j * 7)), 2, 1)
+            theme.text(surf, "封印中", (cx, cy - 96), "small", (152, 142, 186), align="center")
             return
 
         # ---------- 激活状态 ----------
@@ -1933,7 +2004,7 @@ class WorldRenderer:
                 pass
 
     def _draw_shockwaves(self, surf, cam_x, cam_y, st):
-        """Boss 砸地冲击波：贴地扩散的弧，跳起来才能躲。"""
+        """Boss 砸地：贴地扩散的冲击弧 + 地面碎裂 + 飞溅碎屑。"""
         for w in st.get("shockwaves", []):
             try:
                 x = int(w["x"]) - cam_x
@@ -1941,11 +2012,52 @@ class WorldRenderer:
                 r = int(w["r"])
                 if r <= 3:
                     continue
+                age = float(w.get("t", 0.0))
                 fade = max(0.0, 1.0 - r / 280.0)
+
+                # ---- 地面碎裂：从落点向外辐射的锯齿裂纹 ----
+                # 裂纹跟着冲击波一起长，但最多 110px；越往外越淡。
+                cr = min(r, 110)
+                if cr > 6:
+                    rr = random.Random(int(w["x"]) * 7 + 11)
+                    for i in range(8):
+                        side = -1.0 if i % 2 == 0 else 1.0
+                        a0 = rr.uniform(-0.42, 0.42)          # 贴着地面左右铺
+                        pts = [(x, y)]
+                        seg = cr / 3.0
+                        for k in range(1, 4):
+                            rr_ = seg * k
+                            aa = a0 + rr.uniform(-0.22, 0.22)
+                            pts.append((x + side * math.cos(aa) * rr_,
+                                        y + math.sin(aa) * rr_ * 0.55))
+                        ip = [(int(a), int(b)) for a, b in pts]
+                        # 暗裂缝 + 内侧熔光：读起来像"被砸裂、底下透着热"
+                        pygame.draw.lines(surf, (22, 16, 18), False, ip, 3)
+                        pygame.draw.lines(
+                            surf, theme.alpha_color((255, 146, 64), int(160 * fade)),
+                            False, ip, 1)
+                    # 落点焦痕
+                    theme.glow_circle(surf, (x, y), int(26 + 18 * fade),
+                                      (255, 128, 52), 0.30 * fade, 2)
+
+                # ---- 冲击弧 ----
                 col = theme.alpha_color((255, 170, 90), int(200 * fade))
                 pygame.draw.arc(surf, col, (x - r, y - int(r * 0.5), r * 2, r), 0, math.pi, 5)
                 pygame.draw.arc(surf, theme.alpha_color((255, 240, 200), int(120 * fade)),
                                 (x - r, y - int(r * 0.5), r * 2, r), 0.3, 2.8, 2)
+
+                # ---- 飞溅碎屑：只在最开始 0.35 秒 ----
+                if age < 0.35:
+                    k = 1.0 - age / 0.35
+                    rr2 = random.Random(int(w["x"]) * 13 + 5)
+                    for i in range(10):
+                        ang = rr2.uniform(-2.9, -0.25)
+                        dist = (18 + rr2.uniform(0, 46)) * (1.0 - k * 0.35)
+                        px_ = x + math.cos(ang) * dist
+                        py_ = y + math.sin(ang) * dist * 0.45 - (1.0 - k) * 26
+                        sz = 1 + int(2 * k)
+                        pygame.draw.rect(surf, theme.alpha_color((120, 104, 96), int(220 * k)),
+                                         (int(px_), int(py_), sz, sz))
             except Exception:
                 pass
 

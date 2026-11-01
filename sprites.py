@@ -23,24 +23,30 @@ OUTLINE = (22, 18, 26)
 
 PALETTES = {
     "archer": {
-        1: (248, 246, 240),   # 亮毛
-        2: (206, 204, 198),   # 暗毛
-        3: (86, 150, 134),    # 斗篷/兜帽
-        4: (46, 96, 86),      # 斗篷暗部
+        1: (234, 198, 160),   # 皮肤
+        2: (78, 66, 60),      # 深布（后腿 / 阴影）
+        3: (86, 150, 134),    # 斗篷绿
+        4: (44, 92, 82),      # 斗篷暗部
         5: (226, 188, 104),   # 金饰
-        6: (40, 42, 52),      # 眼
-        7: (66, 52, 48),      # 鼻
-        8: (152, 110, 72),    # 皮带/木
+        6: (34, 36, 44),      # 眼
+        7: (150, 96, 84),     # 嘴 / 鼻影
+        8: (128, 88, 54),     # 皮革
+        9: (96, 84, 72),      # 裤子
+        10: (74, 58, 48),     # 靴子
+        11: (206, 214, 226),  # 金属
     },
     "guard": {
-        1: (208, 158, 108),
-        2: (156, 108, 70),
+        1: (234, 198, 160),   # 皮肤
+        2: (58, 60, 70),      # 深铁
         3: (94, 108, 128),    # 甲片
-        4: (58, 68, 86),
+        4: (54, 64, 82),      # 甲片暗部
         5: (198, 206, 220),   # 钢
-        6: (40, 42, 52),
-        7: (66, 52, 48),
-        8: (122, 78, 50),
+        6: (30, 32, 40),      # 眼缝
+        7: (150, 96, 84),
+        8: (122, 78, 50),     # 皮带
+        9: (84, 88, 102),     # 裤甲
+        10: (62, 54, 50),     # 战靴
+        11: (168, 62, 58),    # 红缨
     },
 }
 
@@ -101,37 +107,48 @@ def _poly(g, pts, pid):
 
 
 def _render(g, pal, outline=True, shade=True):
-    """把部件矩阵渲染成 Surface：自动外描边 + 顶部提亮 + 底部压暗。"""
+    """把部件矩阵渲染成 Surface：自动外描边 + 顶部提亮 + 底部压暗。
+
+    用 numpy 整块运算（原来逐像素 set_at，2 倍分辨率下会拖慢启动）。
+    """
     h, w = g.shape
-    surf = pygame.Surface((w, h), pygame.SRCALPHA)
-    px = pygame.PixelArray(surf)
-    # 描边（先画在最底层，避免覆盖主体）
-    if outline:
-        empty = (g == 0)
-        adj = np.zeros_like(empty)
-        adj[1:, :] |= (~empty)[:-1, :]
-        adj[:-1, :] |= (~empty)[1:, :]
-        adj[:, 1:] |= (~empty)[:, :-1]
-        adj[:, :-1] |= (~empty)[:, 1:]
-        edge = empty & adj
-        for y, x in zip(*np.where(edge)):
-            surf.set_at((int(x), int(y)), OUTLINE)
+    solid = (g > 0)
+    rgb = np.zeros((h, w, 3), dtype=np.uint8)
+    alpha = np.where(solid, 255, 0).astype(np.uint8)
+
     for pid, col in pal.items():
         mask = (g == pid)
-        if not mask.any():
-            continue
-        ys, xs = np.where(mask)
-        for y, x in zip(ys, xs):
-            c = col
-            if shade:
-                if y > 0 and g[y - 1, x] == 0:
-                    c = (min(255, int(col[0] * 1.18 + 14)),
-                         min(255, int(col[1] * 1.18 + 14)),
-                         min(255, int(col[2] * 1.18 + 14)))
-                elif y < h - 1 and g[y + 1, x] == 0:
-                    c = (int(col[0] * 0.72), int(col[1] * 0.72), int(col[2] * 0.74))
-            surf.set_at((int(x), int(y)), c)
-    del px
+        if mask.any():
+            rgb[mask] = col
+
+    if shade and solid.any():
+        up_empty = np.zeros_like(solid)
+        up_empty[1:, :] = ~solid[:-1, :]
+        top = solid & up_empty
+        if top.any():
+            v = rgb[top].astype(np.int16) * 1.18 + 14
+            rgb[top] = np.clip(v, 0, 255).astype(np.uint8)
+        dn_empty = np.zeros_like(solid)
+        dn_empty[:-1, :] = ~solid[1:, :]
+        bot = solid & dn_empty
+        if bot.any():
+            rgb[bot] = (rgb[bot].astype(np.float32) *
+                        np.array([0.72, 0.72, 0.74])).astype(np.uint8)
+
+    if outline and solid.any():
+        empty = ~solid
+        adj = np.zeros_like(empty)
+        adj[1:, :] |= solid[:-1, :]
+        adj[:-1, :] |= solid[1:, :]
+        adj[:, 1:] |= solid[:, :-1]
+        adj[:, :-1] |= solid[:, 1:]
+        edge = empty & adj
+        rgb[edge] = OUTLINE
+        alpha[edge] = 255
+
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    pygame.surfarray.pixels3d(surf)[:] = np.transpose(rgb, (1, 0, 2))
+    pygame.surfarray.pixels_alpha(surf)[:] = np.transpose(alpha)
     return surf
 
 
@@ -149,8 +166,32 @@ def _line(g, x0, y0, x1, y1, pid):
 # 角色
 # --------------------------------------------------------------------------
 def _character(kind, pose="idle0", frame=0):
-    g = _blank(W, H)
+    """角色：36x52 的**人形**剪影（2 倍分辨率绘制后降采样，边缘带抗锯齿）。
+
+    旧版是"圆头 + 两只大耳朵"，怎么看都像小狗。这一版：
+      · 去掉兽耳，改成兜帽 / 全罩盔的尖顶轮廓
+      · 明确肩-腰-胯的收放，腿有膝盖、脚有靴口
+      · 弓箭手：飘动的围巾 + 背后箭袋 + 侧持弓
+      · 盾卫：红缨盔 + 双肩甲 + 圆盾 + 短剑
+    """
+    S = 2                      # 内部绘制倍率（降采样后得到柔和边缘）
+    g = _blank(W * S, H * S)
     archer = (kind == "archer")
+
+    def R(x0, y0, x1, y1, pid):
+        _rect(g, x0 * S, y0 * S, x1 * S + S - 1, y1 * S + S - 1, pid)
+
+    def E(cx, cy, rx, ry, pid):
+        _ellipse(g, cx * S, cy * S, rx * S, ry * S, pid)
+
+    def T(pts, pid):
+        _tri(g, [(x * S, y * S) for x, y in pts], pid)
+
+    def P(pts, pid):
+        _poly(g, [(x * S, y * S) for x, y in pts], pid)
+
+    def Ln(x0, y0, x1, y1, pid):
+        _line(g, x0 * S, y0 * S, x1 * S, y1 * S, pid)
 
     # ---- 姿态参数 ----
     bob = 0
@@ -159,125 +200,146 @@ def _character(kind, pose="idle0", frame=0):
     if pose == "idle1":
         bob = 1
     elif pose.startswith("run"):
-        leg = (0, 1, 0, -1)[frame % 4]
+        leg = (1.0, 0.2, -1.0, 0.2)[frame % 4]
         bob = (0, -1, 0, -1)[frame % 4]
         lean = 1
     elif pose == "jump":
         bob = -2
-        leg = 0.8
+        leg = 0.9
     elif pose == "fall":
-        leg = -0.8
+        leg = -0.9
     elif pose == "block":
         bob = 1
 
-    top = 5 + bob
-    hx, hy = 18 + lean, top + 12          # 头部中心
+    top = 4 + bob
+    cx = 18 + lean                       # 身体中轴
 
-    # ---- 尾巴 / 披风 ----
+    # ================= 后层：围巾 / 披风 =================
     if archer:
-        # 围巾（随风）
-        _tri(g, [(12, top + 22), (2 - lean, top + 20), (10, top + 27)], 4)
-        _tri(g, [(12, top + 23), (4 - lean, top + 25), (11, top + 28)], 3)
+        # 围巾：两片尾巴向后飘，跑动时上下摆
+        fl = int(round(math.sin(frame * 1.6) * 1.5)) if pose.startswith("run") else 0
+        T([(cx - 6, top + 14), (cx - 13, top + 12 + fl), (cx - 12, top + 17 + fl)], 4)
+        T([(cx - 6, top + 15), (cx - 11, top + 16 + fl), (cx - 9, top + 20 + fl)], 3)
     else:
-        _rect(g, 24, top + 25, 30, top + 28, 2)
-        _tri(g, [(28, top + 25), (33, top + 20), (30, top + 28)], 2)
+        # 短披风
+        P([(cx - 6, top + 14), (cx + 6, top + 14), (cx + 7, top + 27),
+           (cx - 8, top + 28)], 4)
+        P([(cx - 5, top + 16), (cx - 1, top + 16), (cx - 2, top + 26),
+           (cx - 7, top + 26)], 2)
 
-    # ---- 腿 ----
+    # ================= 腿 =================
     swing = int(round(leg * 3))
-    _rect(g, 11 + swing, top + 35, 16 + swing, top + 47, 2)
-    _rect(g, 19 - swing, top + 35, 24 - swing, top + 47, 1)
-    _rect(g, 10 + swing, top + 45, 17 + swing, top + 49, 8)
-    _rect(g, 18 - swing, top + 45, 25 - swing, top + 49, 8)
+    # 后腿（暗）
+    R(cx - 6 + swing, top + 27, cx - 2 + swing, top + 43, 2)
+    R(cx - 7 + swing, top + 42, cx - 1 + swing, top + 47, 10)
+    # 前腿
+    R(cx + 1 - swing, top + 27, cx + 5 - swing, top + 43, 9)
+    R(cx + 0 - swing, top + 42, cx + 6 - swing, top + 47, 10)
     if not archer:
-        _rect(g, 10 + swing, top + 34, 17 + swing, top + 37, 4)   # 护腿
-        _rect(g, 18 - swing, top + 34, 25 - swing, top + 37, 4)
+        R(cx - 6 + swing, top + 31, cx - 2 + swing, top + 42, 3)   # 胫甲（深钢）
+        R(cx + 1 - swing, top + 31, cx + 5 - swing, top + 42, 3)
+        R(cx - 2 + swing, top + 31, cx - 2 + swing, top + 42, 5)   # 前缘高光
+        R(cx + 5 - swing, top + 31, cx + 5 - swing, top + 42, 5)
 
-    # ---- 躯干 ----
+    # ================= 躯干 =================
     if archer:
-        _rect(g, 12, top + 21, 24, top + 36, 3)
-        _rect(g, 12, top + 21, 14, top + 36, 4)
-        _rect(g, 12, top + 31, 24, top + 33, 8)
-        _rect(g, 16, top + 24, 20, top + 28, 5)
-        # 箭袋
-        _rect(g, 7, top + 23, 11, top + 33, 8)
-        _rect(g, 8, top + 21, 10, top + 24, 5)
+        # 皮甲：肩宽 12、腰宽 8
+        P([(cx - 6, top + 14), (cx + 6, top + 14), (cx + 5, top + 22),
+           (cx + 4, top + 27), (cx - 4, top + 27), (cx - 5, top + 22)], 3)
+        P([(cx - 6, top + 14), (cx - 2, top + 14), (cx - 2, top + 27),
+           (cx - 4, top + 27), (cx - 5, top + 22)], 4)      # 左侧暗面
+        R(cx - 4, top + 22, cx + 4, top + 24, 8)            # 腰带
+        R(cx - 1, top + 22, cx + 1, top + 24, 5)            # 带扣
+        R(cx - 2, top + 15, cx + 1, top + 19, 5)            # 胸扣
+        # 箭袋（背后，露出箭羽）
+        R(cx + 4, top + 13, cx + 7, top + 22, 8)
+        for i in range(3):
+            Ln(cx + 5 + i, top + 13, cx + 4 + i * 2, top + 7, 11)
+            T([(cx + 4 + i * 2, top + 8), (cx + 6 + i * 2, top + 7),
+               (cx + 5 + i * 2, top + 5)], 3)
     else:
-        _rect(g, 10, top + 20, 26, top + 36, 3)
-        _rect(g, 10, top + 20, 13, top + 36, 4)
-        _rect(g, 10, top + 28, 26, top + 30, 4)
-        _rect(g, 10, top + 34, 26, top + 37, 8)      # 战裙
-        _rect(g, 8, top + 20, 12, top + 25, 5)
-        _rect(g, 24, top + 20, 28, top + 25, 5)
-        _rect(g, 16, top + 22, 20, top + 26, 5)
+        # 板甲：宽肩收腰
+        P([(cx - 7, top + 14), (cx + 7, top + 14), (cx + 5, top + 23),
+           (cx + 5, top + 27), (cx - 5, top + 27), (cx - 5, top + 23)], 3)
+        P([(cx - 7, top + 14), (cx - 2, top + 14), (cx - 3, top + 27),
+           (cx - 5, top + 27), (cx - 5, top + 23)], 4)
+        R(cx - 5, top + 22, cx + 5, top + 24, 8)            # 腰带
+        R(cx - 1, top + 22, cx + 1, top + 24, 5)
+        Ln(cx - 4, top + 17, cx + 4, top + 17, 5)           # 胸甲分片
+        Ln(cx - 4, top + 20, cx + 4, top + 20, 5)
+        E(cx - 7, top + 15, 4, 3, 5)                        # 肩甲
+        E(cx + 7, top + 15, 4, 3, 5)
+        E(cx - 7, top + 15, 2, 2, 4)
 
-    # ---- 手臂 ----
+    # ================= 头 =================
+    hy = top + 8
+    E(cx, hy, 4, 4, 1)                    # 头部底面
     if archer:
-        _rect(g, 23, top + 22, 26, top + 30, 1)
-        _rect(g, 21, top + 28, 25, top + 31, 1)
-        _rect(g, 21, top + 28, 25, top + 29, 8)      # 护腕
+        # 兜帽：包住头顶，帽尖向后上方
+        E(cx, hy - 2, 6, 4, 3)
+        P([(cx - 6, hy - 2), (cx - 6, hy + 4), (cx - 4, hy + 3),
+           (cx - 4, hy - 3)], 3)
+        T([(cx - 3, hy - 4), (cx + 2, hy - 9), (cx + 5, hy - 4)], 3)
+        R(cx - 6, hy + 2, cx + 6, hy + 3, 4)              # 帽檐阴影
+        # 帽檐下的脸（窄一点，眼睛压在下缘，才像"藏在兜帽里"）
+        R(cx - 2, hy + 3, cx + 3, hy + 5, 1)
+        R(cx - 1, hy + 3, cx + 0, hy + 4, 6)              # 眼
+        R(cx + 1, hy + 3, cx + 2, hy + 4, 6)
+        # 围巾领口
+        R(cx - 5, hy + 6, cx + 5, hy + 8, 4)
+        R(cx - 4, hy + 6, cx + 4, hy + 7, 3)
     else:
-        _rect(g, 7, top + 23, 10, top + 32, 2)
-        _rect(g, 7, top + 29, 11, top + 32, 5)
-        if pose == "block":
-            _rect(g, 25, top + 19, 28, top + 28, 2)
-        else:
-            _rect(g, 24, top + 24, 27, top + 32, 2)
-            _rect(g, 24, top + 29, 28, top + 32, 5)
+        # 全罩盔：圆顶 + 面甲缝 + 红缨
+        E(cx, hy - 2, 5, 4, 5)
+        R(cx - 5, hy - 2, cx + 5, hy + 1, 5)
+        R(cx - 5, hy + 1, cx + 5, hy + 2, 4)              # 盔沿阴影
+        R(cx - 4, hy + 2, cx + 4, hy + 4, 2)              # 面甲
+        R(cx - 3, hy + 2, cx + 3, hy + 3, 6)              # 眼缝
+        R(cx - 1, hy + 1, cx + 1, hy + 5, 5)              # 护鼻
+        for i in range(4):                                # 红缨
+            R(cx - 1, hy - 7 - i, cx + 1, hy - 6 - i, 11)
 
-    # ---- 头 ----
-    _ellipse(g, hx, hy, 8, 7, 1)
-    _ellipse(g, hx, hy + 4, 4, 2, 1)
-    # 口鼻
-    _rect(g, hx - 1, hy + 3, hx + 1, hy + 4, 7)
-    _line(g, hx, hy + 5, hx, hy + 6, 7)
-    # 眼睛
-    _rect(g, hx - 5, hy - 1, hx - 4, hy + 1, 6)
-    _rect(g, hx + 4, hy - 1, hx + 5, hy + 1, 6)
-    g[hy - 1, hx - 5] = 0
-    g[hy - 1, hx + 4] = 0
+    # ================= 手臂 / 武器 =================
     if archer:
-        # 兜帽内侧投影：只压 1px，让脸有"藏在帽檐下"的层次，而不是一块白
-        _rect(g, hx - 6, hy - 3, hx + 6, hy - 3, 2)
-
-    # ---- 耳朵 ----
-    if archer:
-        _tri(g, [(hx - 8, hy - 3), (hx - 5, hy - 11), (hx - 2, hy - 4)], 1)
-        _tri(g, [(hx + 2, hy - 4), (hx + 5, hy - 11), (hx + 8, hy - 3)], 1)
-        _tri(g, [(hx - 6, hy - 5), (hx - 5, hy - 9), (hx - 4, hy - 5)], 2)
-        _tri(g, [(hx + 4, hy - 5), (hx + 5, hy - 9), (hx + 6, hy - 5)], 2)
-    else:
-        _tri(g, [(hx - 8, hy - 2), (hx - 6, hy - 9), (hx - 3, hy - 4)], 2)
-        _tri(g, [(hx + 3, hy - 4), (hx + 6, hy - 9), (hx + 8, hy - 2)], 2)
-
-    # ---- 帽子 / 头盔 ----
-    if archer:
-        # 兜帽：覆盖头顶与后脑
-        _ellipse(g, hx, hy - 4, 9, 5, 3)
-        _rect(g, hx - 9, hy - 4, hx + 9, hy - 2, 3)
-        _tri(g, [(hx - 9, hy - 3), (hx - 14, hy + 2), (hx - 8, hy + 4)], 4)
-        _rect(g, hx - 9, hy - 3, hx + 9, hy - 2, 4)
-        _rect(g, hx - 2, hy - 6, hx + 2, hy - 3, 5)
-    else:
-        # 头盔：金属盔 + 护鼻 + 红缨
-        _ellipse(g, hx, hy - 3, 9, 6, 5)
-        _rect(g, hx - 10, hy - 4, hx + 10, hy - 1, 5)
-        _rect(g, hx - 10, hy - 1, hx + 10, hy, 4)
-        _rect(g, hx - 1, hy - 3, hx + 1, hy + 4, 5)
-        _rect(g, hx - 1, hy + 1, hx, hy + 3, 4)
-        for i in range(4):
-            _rect(g, hx - 1 + i // 2, hy - 9 - i, hx + 1, hy - 8 - i, 2)
-
-    # ---- 弓（弓箭手）：上下弓臂 + 中间握把 + 弓弦，避免读成"圆环" ----
-    if archer:
-        # 弓：深木色弓臂 + 浅色细弦（金色会读成火把）
+        # 持弓的前臂
+        R(cx + 5, top + 15, cx + 7, top + 21, 1)
+        R(cx + 5, top + 20, cx + 7, top + 22, 8)
+        # 弓：木色弓臂 + 细弦
+        bx = cx + 11
         pts = []
-        for i in range(13):
-            a = -1.15 + i * 0.19
-            pts.append((29 + int(math.cos(a) * 6), int(top + 27 + math.sin(a) * 10)))
+        for i in range(11):
+            a = -1.15 + i * 0.23
+            pts.append((bx + math.cos(a) * 4, top + 18 + math.sin(a) * 8))
         for i in range(len(pts) - 1):
-            _line(g, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 8)
-        _rect(g, 29, top + 25, 32, top + 29, 5)      # 握把（金饰）
-        _line(g, pts[0][0] - 1, pts[0][1], pts[-1][0] - 1, pts[-1][1], 2)   # 浅色弓弦
+            for ox in (0, 1):
+                Ln(int(pts[i][0]) + ox, int(pts[i][1]),
+                   int(pts[i + 1][0]) + ox, int(pts[i + 1][1]), 8)
+        R(bx - 1, top + 17, bx + 1, top + 20, 5)          # 握把
+        Ln(int(pts[0][0]) - 1, int(pts[0][1]),
+           int(pts[-1][0]) - 1, int(pts[-1][1]), 11)      # 弓弦
+        # 后臂
+        R(cx - 7, top + 15, cx - 5, top + 21, 1)
+    else:
+        # 右臂
+        R(cx + 5, top + 15, cx + 7, top + 22, 2)
+        R(cx + 5, top + 21, cx + 8, top + 23, 5)          # 拳
+        if pose == "block":
+            # 举盾格挡：盾立在前方
+            P([(cx + 6, top + 10), (cx + 12, top + 12), (cx + 12, top + 23),
+               (cx + 6, top + 25)], 3)
+            P([(cx + 7, top + 12), (cx + 11, top + 13), (cx + 11, top + 22),
+               (cx + 7, top + 23)], 5)
+            R(cx + 8, top + 16, cx + 10, top + 18, 4)
+        else:
+            # 短剑
+            R(cx + 7, top + 19, cx + 9, top + 20, 8)      # 护手
+            Ln(cx + 8, top + 18, cx + 9, top + 8, 5)      # 剑身
+            T([(cx + 8, top + 9), (cx + 10, top + 9), (cx + 9, top + 6)], 5)
+        # 左臂 + 圆盾（压低、缩小，别挡住胸甲分片线）
+        R(cx - 8, top + 15, cx - 6, top + 21, 2)
+        E(cx - 10, top + 20, 3, 4, 3)
+        E(cx - 10, top + 20, 1, 2, 5)
+        R(cx - 11, top + 19, cx - 9, top + 21, 4)
     return g
 
 
@@ -510,6 +572,10 @@ def get_char(kind, pose="idle0"):
     g = _character(kind, base_pose, frame)
     pal = PALETTES["archer" if kind == "archer" else "guard"]
     s = _render(g, pal)
+    # 内部按 2 倍分辨率绘制，这里降采样回 36x52：
+    # 轮廓不再是硬像素锯齿，观感接近手绘动画的柔边。
+    if s.get_width() != W or s.get_height() != H:
+        s = pygame.transform.smoothscale(s, (W, H))
     _cache[key] = s
     return s
 
