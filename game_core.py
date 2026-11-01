@@ -574,12 +574,19 @@ class GameEngine:
     # 复位
     # ------------------------------------------------------------------
     def _nav_graph(self):
-        """导航图缓存。栅格只有闸门开关时会变，按门状态缓存即可。"""
+        """导航图缓存。栅格只有闸门开关时会变，按门状态缓存即可。
+
+        注意缓存属性不能叫 _nav_graph：那会和这个方法同名，
+        第一次调用后实例属性把方法覆盖掉，第二次 `eng._nav_graph()`
+        就变成"调用一个 NavGraph 对象" -> TypeError，
+        而 _nav_follow 的 except 会把它吞成 False ——
+        表现是"导航图只在第一帧生效，之后 AI 全部退回旧启发式"。
+        """
         key = (self.duo_gate_open, self.rune_open)
         if getattr(self, "_nav_key", None) != key:
-            self._nav_graph = ai_nav.build_nav(self.grid, VINES, set("GRQSsqH"))
+            self._nav_cache = ai_nav.build_nav(self.grid, VINES, set("GRQSsqH"))
             self._nav_key = key
-        return self._nav_graph
+        return self._nav_cache
 
     CHAT_KEEP = 20          # 内存里只保留最近若干条，状态包只发最后 8 条
 
@@ -3678,6 +3685,15 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
         me = eng.players[ai_pid]
         p = g.path(me["x"], me["y"], tx, ty)
         if not p or len(p) < 2:
+            # 目标就在头顶、或已经跳到半空（路径塌缩成单个节点）时，
+            # 要继续按住跳让二段跳补高度。否则：单次跳只有 90px，
+            # 3 格台阶(96px)差 6px 上不去，AI 会永远卡在坑底/台阶下。
+            if ty < me["y"] - 20 and abs(tx - me["x"]) < 90:
+                if abs(tx - me["x"]) > 10:
+                    inp["right" if tx > me["x"] else "left"] = True
+                if me.get("jumps", 0) < 2:
+                    inp["up"] = True
+                return True
             return False
         node, kind = p[1]
         nx, ny = g.nodes[node]
@@ -3689,7 +3705,10 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
             # 按水平方向会让 AI 顺着藤蔓滑反方向、永远爬不上去。
             v = eng.vines[me["vine"]]
             higher_at_t1 = v[3] < v[1]          # t=1 端是否更高
-            going_up = ny < me["y"] + 20        # 下一节点更高（或差不多高）
+            # 用"最终目标"的高度判断该往上还是往下，而不是"下一个节点"：
+            # 下一个节点常常是脚下的落点（比如 (33,19)），会让方向判反，
+            # AI 挂在藤上原地不动。
+            going_up = ty < me["y"] - 8
             slide_right = (going_up == higher_at_t1)
             inp["right"] = slide_right
             inp["left"] = not slide_right

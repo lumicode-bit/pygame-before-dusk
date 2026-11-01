@@ -243,6 +243,30 @@ def test_solo_coop():
         if abs(e.players[1]["x"] - e.players[0]["x"]) < 3 * T:
             rescued = True
             break
+    # 导航图缓存必须能反复取：缓存属性一旦和方法同名，第一次调用后
+    # 实例属性就把方法覆盖了，第二次 eng._nav_graph() 变成"调用 NavGraph 对象"
+    # -> TypeError 被 _nav_follow 吞成 False，导航图从第二帧起彻底失效。
+    e = core.GameEngine()
+    e.reset()
+    g1 = e._nav_graph()
+    g2 = e._nav_graph()
+    check("导航图可重复获取", g1 is g2 and g1 is not None,
+          "同一对象=%s" % (g1 is g2))
+
+    # 跟着玩家爬藤上平台：曾经因为挂索方向按"下一节点"判断而原地卡死
+    e = core.GameEngine()
+    e.reset()
+    e.ai_pid = 1
+    e.players[1]["x"] = 20 * T + 16
+    e.players[1]["y"] = 13 * T
+    e.players[0]["x"] = 26 * T + 16
+    e.players[0]["y"] = e.surface_y(26 * T + 16)
+    for _ in range(400):
+        e.step({0: {}, 1: core.make_ai_input(1, e, 0, "follow")}, core.TICK_DT)
+    _a, _p = e.players[1], e.players[0]
+    check("AI 能跟着玩家上到平台", abs(_a["x"] - _p["x"]) < 3 * T and abs(_a["y"] - _p["y"]) < 3 * T,
+          "AI(%.1f,%.1f) 玩家(%.1f,%.1f)" % (_a["x"] / T, _a["y"] / T, _p["x"] / T, _p["y"] / T))
+
     check("AI 卡在塔里会被带回人类身边", rescued,
           "AI 列 %.1f 用时 %.1fs 死亡 %d" % (e.players[1]["x"] / T, i * core.TICK_DT, e.deaths))
 
