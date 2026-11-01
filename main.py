@@ -385,7 +385,11 @@ def apply_keymap(data):
         for act, codes in data.items():
             if act not in out:
                 continue
-            if isinstance(codes, list) and codes and all(isinstance(c, int) for c in codes):
+            # 除了"是整数列表"，还要校验范围：负数会被 pygame 当负索引，
+            # 读到一个随机的键；超大值永远读不到，等于把这个动作废掉
+            if (isinstance(codes, list) and codes
+                    and all(isinstance(c, int) and not isinstance(c, bool)
+                            and 0 <= c <= 0x40000000 for c in codes)):
                 out[act] = codes[:4]
     KEYMAP = out
 

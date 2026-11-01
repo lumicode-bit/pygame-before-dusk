@@ -967,6 +967,20 @@ def test_event_feedback():
     check("下蹲动作在键位表里", "down" in M.KEYMAP, str(sorted(M.KEYMAP)))
     check("下蹲在可重映射列表里", "down" in M.REBIND_ORDER, str(M.REBIND_ORDER))
 
+    # 键位里出现越界/负数/布尔值时必须回退默认，不能"接受但用不了"
+    _def_up = list(M.DEFAULT_KEYMAP["up"])
+    _bad_maps = [{"up": [-5]}, {"up": [10 ** 12]}, {"up": [True]}, {"up": [106, -1]}]
+    _kept = []
+    for _bm in _bad_maps:
+        M.apply_keymap(_bm)
+        if M.KEYMAP["up"] != _def_up:
+            _kept.append(_bm)
+    M.apply_keymap(None)
+    check("越界键位回退默认", not _kept, "仍被接受：%s" % _kept)
+    M.apply_keymap({"up": [106]})
+    check("合法键位仍生效", M.KEYMAP["up"] == [106], str(M.KEYMAP["up"]))
+    M.apply_keymap(None)
+
     # 滑块标签不能压住滑轨（22 时标签底边正好落在轨道上，像被划掉）
     ui.Slider((0, 100, 260, 8), 0.5, "测试")   # 仅构造，检查标签偏移
     lab_h = theme.render_text("测试", "label").get_height()
