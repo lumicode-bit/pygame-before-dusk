@@ -714,6 +714,21 @@ def test_ai_traverse():
     e, m, _t = _stray_case(130 * T, 130 * T, seconds=12.0)
     check("贴脸不动的怪不会被误清", m in e.monsters)
 
+    # 9) 只剩 1 血时阵亡，复活不能还是 1 血。
+    #    否则刚站起来就被蹭死 -> 检查点连续送死（实测一局死 28 次）。
+    e = core.GameEngine()
+    e.reset()
+    e.players[0]["hp"] = 1.0
+    e.players[1]["hp"] = 1.0
+    for _ in range(3):
+        e.step({}, core.TICK_DT)
+    e.players[0]["hp"] = 0.0
+    for _ in range(6):
+        e.step({}, core.TICK_DT)
+    floor_hp = e.players[0]["maxhp"] * 0.25
+    check("低血阵亡后复活血量有下限", e.players[0]["hp"] >= floor_hp,
+          "复活 hp=%.0f / %.0f" % (e.players[0]["hp"], e.players[0]["maxhp"]))
+
 
 # ---------------------------------------------------------------- 网络
 def test_net():

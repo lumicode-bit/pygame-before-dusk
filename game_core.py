@@ -67,6 +67,7 @@ MONSTER_W, MONSTER_H = 28, 26
 FLY_W, FLY_H = 30, 24
 CW_HIT, CH_HIT = 28, 38
 ARROW_SPEED = 780.0
+ARROW_RANGE = 640.0        # AI 判断"够不够得着"用的射程（箭是直线，无下坠）
 ARROW_LIFETIME = 2.2
 ARROW_SIZE = 5
 
@@ -291,6 +292,7 @@ DASH_CD = 1.15
 DASH_IFRAME = 0.22
 RESPAWN_IFRAME = 1.6
 RESPAWN_HP_RATIO = 0.6
+RESPAWN_HP_FLOOR = 0.5     # 复活血量下限 = cap * 该值（约 30% 最大血）
 
 SWORD_RANGE = 56
 SWORD_DMG = 1.5
@@ -533,6 +535,10 @@ class GameEngine:
         self.ai_pid = None          # 单人模式下由 AI 托管的角色（None 表示不启用归队）
         self._ai_stuck = 0.0
         self._ai_last_x = 0.0
+        self._ai_anchor_x = 0.0
+        self._ai_anchor_t = 0.0
+        self._ai_dist = 1e18
+        self._ai_dist_t = 0.0
         self.tick = 0
         self.deaths = 0
         self.kills = 0
@@ -1003,8 +1009,29 @@ class GameEngine:
             in_lava = (LAVA_LEFT_PX <= a["x"] <= LAVA_RIGHT_PX
                        and a["y"] >= LAVA_SURFACE_Y - 3)
             far = abs(a["x"] - human["x"]) > 700
-            idle = abs(a["x"] - self._ai_last_x) < 2.0
+            # 卡住判定用两个口径，任意一个成立都算：
+            #  ① 逐帧几乎没动（老口径）
+            #  ② 1.2 秒内净位移 < 40px（新口径）
+            # 加 ② 是因为 AI 卡在两个导航节点边界上来回抖时，每帧都移动
+            # 8px，逐帧判定永远认为"在动"，归队兜底就永远不触发。
+            still_now = abs(a["x"] - self._ai_last_x) < 2.0
             self._ai_last_x = a["x"]
+            if abs(a["x"] - self._ai_anchor_x) > 40:
+                self._ai_anchor_x = a["x"]
+                self._ai_anchor_t = 0.0
+            else:
+                self._ai_anchor_t += dt
+            idle = still_now or self._ai_anchor_t > 1.2
+            # ③ "一直没在靠近人类"也算卡住。AI 抖着往前走错方向时，
+            # 逐帧和净位移两个口径都会认为"它在动"，但它其实越走越远。
+            _d = abs(a["x"] - human["x"])
+            if _d < self._ai_dist - 8:
+                self._ai_dist = _d
+                self._ai_dist_t = 0.0
+            else:
+                self._ai_dist_t += dt
+            no_progress = self._ai_dist_t > 2.5
+            stuckish = idle or no_progress
             # 瞭望塔是垂直结构（塔基 96~104 列是一整块实心，只能靠藤蔓/连跳翻越），
             # 纯策略 AI 爬不上去：会在井道里上下弹跳、被喷火机关烧死，而人类一旦
             # 过了塔，两者距离又不到 700px，原来的 far 判定永远不触发。
@@ -1015,9 +1042,9 @@ class GameEngine:
                            and abs(a["x"] - human["x"]) > 80)
             if in_pit or in_lava:
                 self._ai_stuck += dt
-            elif split_tower and idle:
+            elif split_tower and stuckish:
                 self._ai_stuck += dt * 1.6
-            elif far and idle:
+            elif far and stuckish:
                 # 守点指令下，AI 停在守点附近是职责不是卡死，不触发归队传送
                 gp = getattr(self, "ai_guard_pos", None)
                 on_guard = (gp is not None
@@ -1033,6 +1060,8 @@ class GameEngine:
                 a["x"] = human["x"] - 70 * (1 if human["facing"] > 0 else -1)
                 a["y"] = human["y"] - 6
                 a["vx"] = a["vy"] = 0.0
+                self._ai_dist = 1e18
+                self._ai_dist_t = 0.0
                 a["invuln"] = 1.2
                 a["dash_t"] = 0.0
                 self.events.append(("ally_warp", int(a["x"]), int(a["y"])))
@@ -1054,7 +1083,10 @@ class GameEngine:
                 # 修复"送死回血"：复活血量不超过死前血量，且不超过 60%
                 cap = float(p["maxhp"]) * RESPAWN_HP_RATIO
                 last = float(p.get("last_hp", cap))
-                p["hp"] = max(1.0, min(cap, last))
+                # 但必须有个下限：只剩 1 血时阵亡 -> 复活还是 1 血 ->
+                # 刚站起来就被蹭死，形成"检查点连续送死"的死循环
+                # （实测一局死在 Boss 前 28 次，全程 1 血）。
+                p["hp"] = max(1.0, min(cap, max(last, cap * RESPAWN_HP_FLOOR)))
                 p["vine"] = -1      # 不清会在下一帧被 _update_vine 拽回绳上（死循环回危险区）
                 p["x"] = float(rx + (0 if pid == 0 else 46))
                 p["y"] = float(ry)
@@ -3465,9 +3497,13 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 crossing = "left"
         # 只有"同一侧"的地面怪才算危险。深坑对岸的怪根本走不过来，
         # 却被算进 danger_near，AI 就一直不敢上刀刺阶板，永远停在坑口。
-        danger_near = any(m.kind == "ground" and abs(m.x - px) < 320
-                          and (m.x < pit_l) == (px < pit_l)
-                          for m in eng.monsters)
+        # 注意别用 `px < pit_l` 分边：人站在坑口时 px 正好等于 pit_l，
+        # 会被判成"对岸"，于是对岸的怪又把 AI 按住 —— 留 24px 当左岸。
+        _on_left = px < pit_l + 24
+        danger_near = any(
+            m.kind == "ground" and abs(m.x - px) < 320
+            and ((m.x < pit_l + 24) if _on_left else (m.x > pit_l + 24))
+            for m in eng.monsters)
         if crossing is not None and not danger_near:
             # 已骑在刀刺阶板上（被上下携带，随板沉浮）
             if on_plate:
@@ -3658,21 +3694,35 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
         monsters = eng.monsters
 
         # ---------- 补给箱：低血时靠近并开启 ----------
+        # 两个坑：
+        #  1) 原来只比横向距离，不算高度 —— 塔二层（y=352）的箱子在地面上
+        #     也会被当成"153px 就到"，AI 一路往塔壁里撞。
+        #  2) 原来取"第一个在范围内的"，而不是最近的；队友站在旁边时还会
+        #     因为"别抢"的判定一帧跳过一帧不跳过，在原地左右抖。
         if me["hp"] < me["maxhp"] * 0.72:
+            _best_ch, _best_d = None, 1e18
             for ch in eng._chests:
                 if ch["opened"]:
                     continue
                 dd = abs(ch["x"] - px)
-                # 人类玩家就在箱子旁边时不要抢着开，避免"我按 E 却没反应"
-                if abs(other["x"] - ch["x"]) < 150:
+                if dd >= 170:
                     continue
-                if dd < 160 and abs(py - 19 * TILE) < 96:
-                    if dd < CHEST_RANGE - 8:
-                        inp["interact"] = True
-                    else:
-                        inp["right"] = ch["x"] > px
-                        inp["left"] = ch["x"] < px
-                    return inp
+                # 不同楼层不算（差 2 格以上够不着）
+                if abs(ch["gy"] - py) > 72:
+                    continue
+                # 人类就在箱子旁边、而且明显比我近 -> 让给他
+                _od = abs(other["x"] - ch["x"])
+                if _od < 150 and _od < dd - 40:
+                    continue
+                if dd < _best_d:
+                    _best_d, _best_ch = dd, ch
+            if _best_ch is not None:
+                if _best_d < CHEST_RANGE - 8:
+                    inp["interact"] = True
+                else:
+                    inp["right"] = _best_ch["x"] > px
+                    inp["left"] = _best_ch["x"] < px
+                return inp
 
         # ================= AI 盾卫 =================
         if ai_pid == 1:
@@ -3689,18 +3739,24 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 d = abs(m.x - px) + abs(m.y - py)
                 if d < bd:
                     bd, best = d, m
+            # 怪已经贴到身边就别再"追"了：目标 x 和自己几乎重合时，
+            # _nav_follow 会在左右两个节点之间来回判，盾卫原地高频抖动、
+            # 既不挥剑也不跟随（实测卡在 109 列 10 秒）。
+            _too_close = best is not None and abs(best.x - px) <= 26 and abs(best.y - py) < 40
             if best is not None and bd < SWORD_RANGE * 1.3:
                 if bd < 70 and abs(best.x - px) < 90:
                     inp["sword"] = True
                 # 追击移动也走导航图：怪在隔壁小沟对面时能绕/跳过去，
                 # 而不是一头扎进沟里；够近就站住挥剑
-                if not _nav_follow(eng, ai_pid, inp, best.x, best.y):
-                    advance(best.x, best.y)
+                if not _too_close:
+                    if not _nav_follow(eng, ai_pid, inp, best.x, best.y):
+                        advance(best.x, best.y)
                 return inp
             # 2) 主动追击近距地面怪
             if best is not None and bd < 430:
-                if not _nav_follow(eng, ai_pid, inp, best.x, best.y):
-                    advance(best.x, best.y)
+                if not _too_close:
+                    if not _nav_follow(eng, ai_pid, inp, best.x, best.y):
+                        advance(best.x, best.y)
                 if bd < 76:
                     inp["sword"] = True
                 return inp
@@ -3804,7 +3860,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             return inp
 
         # 攻击射程内怪物（保持安全距离）
-        if best is not None and bd < 640:
+        if best is not None and bd < ARROW_RANGE:
             inp["shoot"] = True
             inp["mx"] = best.x
             inp["my"] = best.y - (10 if best.kind == "fly" else (20 if best.kind == "caster" else 16))
@@ -3812,9 +3868,14 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             # 之前弓箭手会一边退一边射，直接退下悬崖摔死（两人共用一条命）。
             if bd < 120:
                 dmv = 1 if best.x < px else -1
-            else:
+            elif bd > ARROW_RANGE * 0.75:
+                # 只在"真的够不着"时才靠近。箭是直线飞行、射程 640，
+                # 原来只要目标在 120~640 之间就往它身上凑 —— 弓手会一边
+                # 射一边走进怪堆，低血时直接送掉。
                 dxm = best.x - px
                 dmv = (1 if dxm > 0 else -1) if abs(dxm) > 50 else 0
+            else:
+                dmv = 0
             if not dmv and abs(fx - px) > 80:
                 # 目标几乎在正上方（蝙蝠盘旋）时原来会原地不动一直射。
                 # 这时候继续朝汇合点走，别把队友晾在半张图外。
@@ -3834,14 +3895,23 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 if _has_floor:
                     inp["right"] = dmv > 0
                     inp["left"] = dmv < 0
-            # 边打边走的台阶：战斗分支一旦接管，就完全不看地形了。
-            # 弓手站在 A 断崖底部打蝙蝠时，会一直按右顶着崖壁走，永远出不来。
-            if (inp["right"] or inp["left"]) and me["on_ground"]:
+            # 边打边走的翻越：战斗分支一旦接管，就完全不看地形了。
+            # 弓手站在 A 断崖底部打蝙蝠时会一直按右顶着崖壁走；
+            # 站在瞭望塔脚下打术士时同理，连 4 格高的塔基都上不去。
+            if inp["right"] or inp["left"]:
                 _d = 1 if inp["right"] else -1
-                _c = int((px + _d * (PLAYER_W / 2 + 6)) // TILE)
-                _r = int((py - PLAYER_H * 0.5) // TILE)
-                if solid(_c, _r) or solid(_c, _r - 1):
-                    inp["up"] = True
+                _blocked = False
+                for _look in (PLAYER_W * 0.5 + 8, PLAYER_W * 0.5 + 22):
+                    _c = int((px + _d * _look) // TILE)
+                    _fr = int((py - 2) // TILE)
+                    if any(solid(_c, _fr - _up) for _up in range(1, 5)):
+                        _blocked = True
+                        break
+                if _blocked:
+                    if me["on_ground"]:
+                        inp["up"] = True          # 起跳
+                    elif me.get("jumps") == 1:
+                        inp["up"] = True          # 二段跳补高度（塔基 4 格）
             return inp
 
         # 跟随玩家
