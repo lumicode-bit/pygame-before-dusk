@@ -91,10 +91,35 @@ def skin_style(kind, idx=None):
     return lst[max(0, min(len(lst) - 1, i))].get("style", "hood")
 
 
+def _mix(c1, c2, t):
+    return (int(c1[0] + (c2[0] - c1[0]) * t),
+            int(c1[1] + (c2[1] - c1[1]) * t),
+            int(c1[2] + (c2[2] - c1[2]) * t))
+
+
+def _scale(c, k):
+    return (max(0, min(255, int(c[0] * k))),
+            max(0, min(255, int(c[1] * k))),
+            max(0, min(255, int(c[2] * k))))
+
+
 def skin_palette(kind, idx=None):
     lst = skin_list(kind)
     i = SKIN["archer" if kind == "archer" else "guard"] if idx is None else idx
-    return lst[max(0, min(len(lst) - 1, i))]["pal"]
+    pal = dict(lst[max(0, min(len(lst) - 1, i))]["pal"])
+    # 12~20：从基础 11 色自动派生"中间调 / 高光 / 最深 / 环境光"，
+    # 不用给每套外观手写 20 个颜色，也保证六套风格一致。
+    if 12 not in pal:
+        pal[12] = _scale(pal[1], 0.80)                     # 皮肤暗部
+        pal[13] = _mix(pal[3], (255, 255, 255), 0.30)      # 主色高光
+        pal[14] = _scale(pal[4], 0.66)                     # 主色最深（缝）
+        pal[15] = _scale(pal[8], 1.28)                     # 皮革亮
+        pal[16] = _scale(pal[9], 1.30)                     # 裤子亮
+        pal[17] = _scale(pal[5], 0.74)                     # 金饰暗
+        pal[18] = _scale(pal[10], 1.35)                    # 靴子亮
+        pal[19] = (238, 242, 248)                          # 眼白
+        pal[20] = _mix(pal[3], (104, 146, 178), 0.55)      # 冷环境光
+    return pal
 
 
 
@@ -221,7 +246,7 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
       · 弓箭手：飘动的围巾 + 背后箭袋 + 侧持弓
       · 盾卫：红缨盔 + 双肩甲 + 圆盾 + 短剑
     """
-    S = 2                      # 内部绘制倍率（降采样后得到柔和边缘）
+    S = 4                      # 内部绘制倍率（4 倍超采样，降采样后边缘更细腻）
     g = _blank(W * S, H * S)
     archer = (kind == "archer")
 
@@ -289,7 +314,11 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
     R(cx - 7 + swing, top + 42, cx - 1 + swing, top + 47, 10)
     # 前腿
     R(cx + 1 - swing, top + 27, cx + 5 - swing, top + 43, 9)
+    Ln(cx + 5 - swing, top + 28, cx + 5 - swing, top + 42, 16)   # 裤腿高光
+    Ln(cx + 1 - swing, top + 35, cx + 5 - swing, top + 35, 2)    # 膝盖分节
+    Ln(cx + 1 - swing, top + 41, cx + 5 - swing, top + 41, 2)    # 脚踝
     R(cx + 0 - swing, top + 42, cx + 6 - swing, top + 47, 10)
+    Ln(cx + 6 - swing, top + 43, cx + 6 - swing, top + 46, 18)   # 靴口亮边
     if not archer:
         R(cx - 6 + swing, top + 31, cx - 2 + swing, top + 42, 3)   # 胫甲（深钢）
         R(cx + 1 - swing, top + 31, cx + 5 - swing, top + 42, 3)
@@ -304,9 +333,16 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
            (cx + 4, top + 27), (cx - 4, top + 27), (cx - 5, top + 22)], 3)
         P([(cx - 6, top + 14), (cx - 2, top + 14), (cx - 2, top + 27),
            (cx - 4, top + 27), (cx - 5, top + 22)], 4)      # 左侧暗面
+        Ln(cx + 4, top + 15, cx + 4, top + 26, 13)          # 右缘高光
+        Ln(cx - 5, top + 15, cx - 5, top + 25, 14)          # 左缘最深缝
+        Ln(cx - 1, top + 19, cx + 2, top + 25, 14)          # 衣褶
+        Ln(cx + 2, top + 16, cx + 2, top + 20, 13)          # 胸前高光
         R(cx - 4, top + 22, cx + 4, top + 24, 8)            # 腰带
+        Ln(cx - 4, top + 22, cx + 4, top + 22, 15)          # 腰带亮边
+        Ln(cx - 4, top + 24, cx + 4, top + 24, 2)           # 腰带下阴影
         R(cx - 1, top + 22, cx + 1, top + 24, 5)            # 带扣
         R(cx - 2, top + 15, cx + 1, top + 19, 5)            # 胸扣
+        R(cx - 2, top + 18, cx + 1, top + 18, 17)           # 胸扣暗边
         # 箭袋（背后，露出箭羽）
         R(cx + 4, top + 13, cx + 7, top + 22, 8)
         for i in range(3):
@@ -323,6 +359,10 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
         R(cx - 1, top + 22, cx + 1, top + 24, 5)
         Ln(cx - 4, top + 17, cx + 4, top + 17, 5)           # 胸甲分片
         Ln(cx - 4, top + 20, cx + 4, top + 20, 5)
+        Ln(cx - 4, top + 18, cx + 4, top + 18, 4)           # 分片下阴影
+        Ln(cx - 4, top + 21, cx + 4, top + 21, 4)
+        Ln(cx + 4, top + 15, cx + 4, top + 26, 11)          # 右缘高光
+        Ln(cx - 5, top + 15, cx - 5, top + 25, 14)          # 左缘最深缝
         E(cx - 7, top + 15, 4, 3, 5)                        # 肩甲
         E(cx + 7, top + 15, 4, 3, 5)
         E(cx - 7, top + 15, 2, 2, 4)
@@ -364,8 +404,12 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
             R(cx - 6, hy + 2, cx + 6, hy + 3, 4)          # 帽檐阴影
             # 帽檐下的脸（窄一点，眼睛压在下缘，才像"藏在兜帽里"）
             R(cx - 2, hy + 3, cx + 3, hy + 5, 1)
-            R(cx - 1, hy + 3, cx + 0, hy + 4, 6)          # 眼
+            Ln(cx - 2, hy + 5, cx + 3, hy + 5, 12)        # 下颌暗部
+            R(cx - 1, hy + 3, cx + 0, hy + 4, 6)          # 眼窝
             R(cx + 1, hy + 3, cx + 2, hy + 4, 6)
+            R(cx - 1, hy + 3, cx - 1, hy + 3, 19)         # 瞳点高光
+            R(cx + 2, hy + 3, cx + 2, hy + 3, 19)
+            Ln(cx - 2, hy + 2, cx + 3, hy + 2, 12)        # 眉骨阴影
             # 围巾领口
             R(cx - 5, hy + 6, cx + 5, hy + 8, 4)
             R(cx - 4, hy + 6, cx + 4, hy + 7, 3)
@@ -432,7 +476,7 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
             if _f == 0:
                 Ln(int(bx) + 2, top + 17, _hx + 1, _hy, 5)
         else:
-            Ln(int(bx) + 1, top + 7, int(bx) + 1, top + 29, 11)
+            Ln(int(bx) + 1, top + 7, int(bx) + 1, top + 29, 19)
         # 后臂
         R(cx - 7, top + 15, cx - 5, top + 21, 1)
     else:
@@ -466,7 +510,7 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
             R(*_S[1], 5)
             R(*_S[2], 8)
             Ln(_S[3][0], _S[3][1], _S[4][0], _S[4][1], 5)
-            Ln(_S[3][0] + 1, _S[3][1], _S[4][0] + 1, _S[4][1], 11)
+            Ln(_S[3][0] + 1, _S[3][1], _S[4][0] + 1, _S[4][1], 19)
         elif pose == "block":
             # 举盾格挡：大盾立在前方
             P([(cx + 5, top + 9), (cx + 12, top + 11), (cx + 12, top + 24),
@@ -480,11 +524,11 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
             # 短剑：宽一点的剑身（3px）+ 亮刃边 + 护手 + 握柄 + 配重
             R(cx + 6, top + 7, cx + 9, top + 16, 2)       # 剑身暗面
             R(cx + 7, top + 7, cx + 9, top + 16, 5)       # 剑身
-            R(cx + 9, top + 8, cx + 9, top + 15, 11)      # 刃口高光
+            R(cx + 9, top + 8, cx + 9, top + 15, 19)      # 刃口高光（亮白）
             T([(cx + 6, top + 8), (cx + 9, top + 8), (cx + 8, top + 4)], 5)
             R(cx + 5, top + 16, cx + 10, top + 17, 8)     # 护手
-            R(cx + 5, top + 16, cx + 5, top + 17, 11)
-            R(cx + 10, top + 16, cx + 10, top + 17, 11)
+            R(cx + 5, top + 16, cx + 5, top + 17, 19)
+            R(cx + 10, top + 16, cx + 10, top + 17, 19)
             R(cx + 7, top + 17, cx + 9, top + 20, 8)      # 握柄
             R(cx + 7, top + 18, cx + 7, top + 19, 4)
             R(cx + 6, top + 20, cx + 10, top + 21, 5)     # 配重
