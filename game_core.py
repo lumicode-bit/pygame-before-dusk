@@ -319,6 +319,18 @@ ERUPT_R = 56                # 伤害半径
 ERUPT_DMG = 14
 ERUPT_TIME = 0.5            # 喷发视觉持续
 
+# ---- 树精：嘴里喷幽蓝火焰（灼烧）----
+BREATH_CD = 5.2             # 喷火冷却
+BREATH_WINDUP = 0.6         # 仰头蓄力（口中聚幽蓝）
+BREATH_TIME = 1.1           # 火焰持续
+BREATH_LEN = 262            # 火焰射程
+BREATH_H = 112              # 火焰纵向判定高度（从口到脚下）
+BREATH_TICK = 0.3           # 灼烧判定间隔
+BREATH_TICK_DMG = 4
+BURN_TIME = 2.5             # 离开火焰后仍灼烧
+BURN_TICK = 0.5
+BURN_TICK_DMG = 3
+
 # 冲刺
 DASH_SPEED = 640.0
 DASH_TIME = 0.16
@@ -520,7 +532,7 @@ class Monster:
                  "last_lava", "state", "state_t", "flash", "atk_cd",
                  "elite", "enraged", "cast_cd", "anchor_y", "stuck_t",
                  "phase", "slam_cd", "summoned", "guard_x", "tower",
-                 "arena", "egg_cd", "windup", "lava", "erupt_cd")
+                 "arena", "egg_cd", "windup", "lava", "erupt_cd", "breath_cd")
 
     def __init__(self, mid, kind, x, y):
         self.mid = mid
@@ -559,6 +571,7 @@ class Monster:
         self.windup = 0.0          # 树精扔蛋蓄力计时
         self.lava = False          # 岩浆小 Boss：泡在岩浆表面、不坠落
         self.erupt_cd = ERUPT_CD   # 岩浆喷发冷却
+        self.breath_cd = BREATH_CD  # 树精喷幽蓝火焰冷却
 
     def rect(self):
         if self.kind == "fly":
@@ -682,6 +695,7 @@ class GameEngine:
                 "dash_cd": 0.0, "dash_t": 0.0, "dash_dir": 1, "invuln": 0.0,
                 "block_hold": 0.0, "land": 0.0, "last_hp": 80.0,
                 "vine": -1, "vine_t": 0.0,
+                "burn": 0.0, "_burn_tick": 0.0,
             }
         self.arrows = []
         self.monsters = []
@@ -752,6 +766,7 @@ class GameEngine:
         self.explosions = []        # 紫色爆炸
         self.blooms = []            # 树精死亡后地面焕发生机
         self.lava_eruptions = []    # 岩浆喷发（熔炉守卫技能）
+        self.breaths = []           # 树精喷出的幽蓝火焰
         self.lava_boss_spawned = False
         self.lava_boss_dead = False
         self.shockwaves = []
@@ -987,6 +1002,8 @@ class GameEngine:
             self._update_eggs(dt)
             self._update_explosions(dt)
             self._update_lava_eruptions(dt)
+            self._update_breaths(dt)
+            self._update_burn(dt)
             self._update_blooms(dt)
             self._update_shockwaves(dt)
             self._update_vents(dt)
@@ -2401,7 +2418,7 @@ class GameEngine:
     # 树精 Boss：扔蛋 -> 紫色爆炸
     # ------------------------------------------------------------------
     def _tree_ai(self, m, dt):
-        """树精扎根缓慢挪动，周期性把手里的蛋砸向最近角色。"""
+        """树精：扔蛋（远程） / 喷幽蓝火焰（近中程，灼烧）。"""
         try:
             alive = [p for p in self.players.values() if p["hp"] > 0]
             if not alive:
@@ -2415,7 +2432,7 @@ class GameEngine:
                 m.enraged = True
                 self.events.append(("boss_enrage", int(m.x), int(m.y)))
             m.flash = 0.0
-            if m.state in ("walk", "recover"):
+            if m.state in ("walk", "recover", "breathe_wind", "breathe_fire"):
                 m.dir = 1 if dx > 0 else -1
             m.state_t += dt
             if m.state == "throw":
@@ -2427,6 +2444,20 @@ class GameEngine:
                     self._spawn_egg(m, target)
                     m.state = "recover"
                     m.state_t = 0.0
+            elif m.state == "breathe_wind":
+                # 仰头蓄力：口中聚幽蓝（flash 用于渲染蓝色聚气）
+                m.vx *= 0.7
+                m.flash = min(1.0, m.state_t / max(0.01, BREATH_WINDUP))
+                if m.state_t >= BREATH_WINDUP:
+                    self._spawn_breath(m, target)
+                    m.state = "breathe_fire"
+                    m.state_t = 0.0
+            elif m.state == "breathe_fire":
+                m.vx *= 0.6
+                m.flash = 0.6
+                if m.state_t >= BREATH_TIME:
+                    m.state = "recover"
+                    m.state_t = 0.0
             elif m.state == "recover":
                 m.vx *= 0.85
                 if m.state_t >= TREE_RECOVER:
@@ -2435,7 +2466,15 @@ class GameEngine:
             else:  # walk
                 m.vx = m.dir * TREE_SPEED if abs(dx) > 260 else 0.0
                 m.egg_cd = max(0.0, m.egg_cd - dt)
-                if (m.egg_cd <= 0 and abs(dx) < TREE_THROW_RANGE
+                m.breath_cd = max(0.0, m.breath_cd - dt)
+                near = (abs(dx) < BREATH_LEN * 0.9 and
+                        abs(target["y"] - m.y) < 180)
+                if m.breath_cd <= 0 and near:
+                    # 先考虑喷火（中近距离），否则扔蛋（远程）
+                    m.state = "breathe_wind"
+                    m.state_t = 0.0
+                    m.breath_cd = BREATH_CD * (0.8 if m.phase >= 2 else 1.0)
+                elif (m.egg_cd <= 0 and abs(dx) < TREE_THROW_RANGE
                         and abs(target["y"] - m.y) < 220):
                     m.state = "throw"
                     m.state_t = 0.0
@@ -2573,6 +2612,68 @@ class GameEngine:
             except Exception:
                 pass
         self.lava_eruptions = out
+
+    # ------------------------------------------------------------------
+    # 树精：幽蓝火焰喷射 + 灼烧
+    # ------------------------------------------------------------------
+    def _mouth_pos(self, m):
+        """树精嘴部世界坐标（按 0.55 缩放：精灵 132×165，嘴在约 (69,103)）。"""
+        return (m.x + 3, m.y - 62)
+
+    def _spawn_breath(self, m, target):
+        try:
+            mx, my = self._mouth_pos(m)
+            d = 1 if target["x"] >= mx else -1
+            self.breaths.append({
+                "x": float(mx), "y": float(my), "dir": d,
+                "t": 0.0, "max": BREATH_TIME, "tick": 0.0,
+            })
+            self.events.append(("breath", int(mx), int(my)))
+        except Exception as e:
+            write_log("幽蓝火焰生成异常: %r" % (e,))
+
+    def _update_breaths(self, dt):
+        out = []
+        for br in self.breaths:
+            try:
+                br["t"] += dt
+                br["tick"] -= dt
+                if br["tick"] <= 0:
+                    br["tick"] = BREATH_TICK
+                    bx = br["x"]
+                    x0 = bx if br["dir"] > 0 else bx - BREATH_LEN
+                    zone = (x0, br["y"] - 26, BREATH_LEN, BREATH_H)
+                    for pid, p in self.players.items():
+                        if p["hp"] <= 0 or p["invuln"] > 0:
+                            continue
+                        pr = (p["x"] - PLAYER_W / 2, p["y"] - PLAYER_H,
+                              PLAYER_W, PLAYER_H)
+                        if rect_overlap(zone, pr):
+                            # 举盾朝向来火方向可挡下喷火
+                            facing_fire = (p["facing"] > 0) == (br["dir"] < 0)
+                            if pid == 1 and p["blocking"] and facing_fire:
+                                self.events.append(("block", int(p["x"]), int(p["y"] - 20)))
+                            else:
+                                self._damage_player(pid, BREATH_TICK_DMG, "breath")
+                                p["burn"] = BURN_TIME
+                if br["t"] < br["max"]:
+                    out.append(br)
+            except Exception:
+                pass
+        self.breaths = out
+
+    def _update_burn(self, dt):
+        for pid, p in self.players.items():
+            try:
+                if p.get("burn", 0.0) > 0 and p["hp"] > 0:
+                    p["burn"] -= dt
+                    p["_burn_tick"] = p.get("_burn_tick", 0.0) - dt
+                    if p["_burn_tick"] <= 0:
+                        p["_burn_tick"] = BURN_TICK
+                        p["hp"] = max(0, p["hp"] - BURN_TICK_DMG)
+                        self.events.append(("burn", int(p["x"]), int(p["y"] - 28)))
+            except Exception:
+                pass
 
     def _boss_ai(self, m, dt):
         """三段式：接近 → 蓄力（红光） → 冲锋 → 收招。"""
@@ -3138,6 +3239,7 @@ class GameEngine:
                     "vine": p.get("vine", -1), "vine_t": round(p.get("vine_t", 0.0), 3),
                     "power": round(float(p.get("power", 1.0)), 2),
                     "vy": round(p["vy"], 1), "land": round(p["land"], 2),
+                    "burn": round(p.get("burn", 0.0), 2),
                 }
             arrows = [{"aid": a.aid, "x": round(a.x, 2), "y": round(a.y, 2),
                        "ang": round(a.ang, 3)} for a in self.arrows]
@@ -3209,6 +3311,9 @@ class GameEngine:
                                     "t": round(er["t"], 3), "delay": er["delay"],
                                     "max": er["max"], "done": er["done"]}
                                    for er in self.lava_eruptions],
+                "breaths": [{"x": round(br["x"], 1), "y": round(br["y"], 1),
+                             "dir": br["dir"], "t": round(br["t"], 3),
+                             "max": br["max"]} for br in self.breaths],
                 "blooms": [{"x": round(b["x"], 1), "y": round(b["y"], 1),
                            "t": round(b["t"], 2), "max": b["max"],
                            "seed": b["seed"]} for b in self.blooms],
@@ -3257,6 +3362,7 @@ class GameEngine:
                     "hammers": [], "fall_rocks": [], "checkpoints": [], "chests": [],
                     "corpses": [], "fireballs": [], "shockwaves": [],
                     "eggs": [], "explosions": [], "blooms": [], "lava_eruptions": [],
+                    "breaths": [],
                     "duo_open": False, "duo_hold": 0.0,
                     "difficulty": 1.0,
                     "weapon_taken": False, "vents": [],

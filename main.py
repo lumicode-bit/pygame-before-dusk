@@ -2268,6 +2268,15 @@ class App:
                     self.post.hit_flash((255, 120, 50), 0.22, full=False)
                     self.particles.burst("spark", x, y, (255, 150, 70), count=22, power=1.5)
                     self.particles.burst("ember", x, y - 10, (255, 190, 100), count=12, power=1.2)
+                elif k == "breath":
+                    # 树精喷幽蓝火焰：低吼 + 冷焰粒子
+                    audio.sfx("lava", 0.85)
+                    self.cam.add_trauma(0.3)
+                    self.particles.burst("magic", x, y, (90, 185, 255), count=18, power=1.3)
+                    self.particles.burst("ember", x, y, (150, 220, 255), count=8, power=1.0)
+                elif k == "burn":
+                    # 灼烧：持续冒蓝火苗（只出粒子，不刷音效）
+                    self.particles.burst("ember", x, y, (120, 200, 255), count=2, power=0.6)
                 elif k == "reset":
                     pass
                 sh = fx.screen_shake_for_event(k)

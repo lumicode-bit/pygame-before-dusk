@@ -528,6 +528,8 @@ class WorldRenderer:
         self._draw_explosions(surf, cam_x, cam_y, t, st)
         self._draw_lava_eruptions(surf, cam_x, cam_y, t, st)
         self._draw_players(surf, cam_x, cam_y, t, st, focus_pid)
+        # 幽蓝火焰画在角色之上：让被喷中的角色被火舌包住
+        self._draw_breaths(surf, cam_x, cam_y, t, st)
         # 前景
         self._draw_foreground(surf, cam_x, cam_y, t, region)
 
@@ -2204,6 +2206,55 @@ class WorldRenderer:
             except Exception:
                 pass
 
+    def _draw_breaths(self, surf, cam_x, cam_y, t, st):
+        """树精幽蓝火焰：从嘴部喷出的锥形蓝焰（外层深蓝 -> 中层青 -> 白芯），带飘动与余烬。"""
+        L = core.BREATH_LEN
+        H = core.BREATH_H
+        for br in st.get("breaths", []):
+            try:
+                mx = float(br["x"]) - cam_x
+                my = float(br["y"]) - cam_y
+                d = 1 if br["dir"] > 0 else -1
+                age = float(br["t"])
+                mx_t = float(br["max"])
+                k = min(1.0, age / 0.12) * min(1.0, (mx_t - age) / 0.25)
+                if k <= 0.01:
+                    continue
+                pad = 30
+                fs = pygame.Surface((int(L) + pad * 2, int(H) + pad * 2), pygame.SRCALPHA)
+                ox = pad if d > 0 else fs.get_width() - pad
+                oy = pad + H * 0.5
+
+                def cone(wk, col):
+                    seg = 10
+                    top, bot = [], []
+                    for i in range(seg + 1):
+                        tt = i / float(seg)
+                        fx = ox + d * L * tt
+                        spread = (6 + (H * 0.5) * tt) * wk
+                        wob = math.sin(t * 13 + tt * 7) * (4 + 7 * tt)
+                        top.append((fx, oy - spread + wob * 0.5))
+                        bot.append((fx, oy + spread + wob * 0.5))
+                    pygame.draw.polygon(fs, col, top + bot[::-1])
+
+                cone(1.0, (28, 70, 170, int(150 * k)))
+                cone(0.66, (70, 170, 240, int(175 * k)))
+                cone(0.34, (200, 245, 255, int(200 * k)))
+                surf.blit(fs, (mx - ox, my - oy))
+                # 飞散余烬
+                rnd = random.Random(int(br["x"]) * 11 + 5)
+                for i in range(10):
+                    tt = (t * 1.5 + i * 0.17) % 1.0
+                    fx = mx + d * L * tt
+                    fy = my + rnd.uniform(-H * 0.4, H * 0.4) + math.sin(t * 10 + i) * 4
+                    pygame.draw.circle(surf, (150, 220, 255),
+                                       (int(fx), int(fy)), max(1, int(2 * (1 - tt))))
+                # 嘴部强光
+                theme.glow_circle(surf, (int(mx), int(my)), 26, (90, 190, 255),
+                                  0.5 * k, 3)
+            except Exception:
+                pass
+
     def _draw_blooms(self, surf, cam_x, cam_y, t, st):
         """树精死亡：附近地面长出草与花，逐渐焕发生机（带风摆 + 生命波纹 + 花瓣）。"""
         for b in st.get("blooms", []):
@@ -2471,9 +2522,10 @@ class WorldRenderer:
                     theme.soft_shadow(surf, int(m["x"]) - cam_x,
                                       int(m["y"]) - cam_y, 62, 16,
                                       int(120 * (1.0 - (_prog or 0.0))))
-                    # 蓄力：身周泛起紫光，读秒"要扔蛋了"
+                    # 蓄力/喷火：投掷=紫光（身后光晕），喷火=幽蓝光（嘴前，画在精灵之上）
                     _fl = float(m.get("flash", 0.0))
-                    if _fl > 0.02:
+                    _blue = _st in ("breathe_wind", "breathe_fire")
+                    if _fl > 0.02 and not _blue:
                         theme.glow_circle(surf, (r.centerx, r.centery + 8), 96,
                                           (168, 88, 232), 0.22 + 0.45 * _fl, 4)
                         theme.glow_circle(surf, (r.centerx, r.top + 40), 34,
@@ -2483,6 +2535,14 @@ class WorldRenderer:
                         theme.glow_circle(surf, (r.centerx, r.centery), 70,
                                           (255, 70, 60), 0.20 + 0.22 * pulse, 3)
                     surf.blit(img, r)
+                    # 幽蓝聚气：画在嘴前（精灵之上），越蓄越亮
+                    if _fl > 0.02 and _blue:
+                        _mxs = int(m["x"]) - cam_x + 3
+                        _mys = int(m["y"]) - cam_y - 58
+                        theme.glow_circle(surf, (_mxs, _mys), 46,
+                                          (80, 180, 255), 0.30 + 0.55 * _fl, 4)
+                        theme.glow_circle(surf, (_mxs, _mys), 18,
+                                          (210, 245, 255), 0.40 + 0.5 * _fl, 2)
                     # 受击闪白：血量下降的那一瞬叠一层亮白，逐帧衰减
                     _hp = int(m["hp"])
                     _mid = m["mid"]
@@ -2819,6 +2879,16 @@ class WorldRenderer:
                 fl = p.get("shoot_flash", 0.0)
                 if fl > 0.02:
                     self._draw_shot_fx(surf, rect, p["facing"], fl)
+
+            # 灼烧：被幽蓝火焰点燃后身周跳动的蓝火苗 + 冷光
+            if p.get("burn", 0.0) > 0.02:
+                theme.glow_circle(surf, (x, y - 18), 24, (90, 180, 255), 0.22, 2)
+                rnd = random.Random(int(p["x"]) * 7 + int(t * 9))
+                for _i in range(5):
+                    fx = x + rnd.uniform(-10, 10)
+                    fy = y - rnd.uniform(6, 36)
+                    pygame.draw.circle(surf, (150, 220, 255),
+                                       (int(fx), int(fy)), max(1, int(rnd.uniform(1, 2.6))))
 
             # 主角标记
             if focus_pid is not None and pid == focus_pid:
