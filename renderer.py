@@ -2207,7 +2207,8 @@ class WorldRenderer:
                 pass
 
     def _draw_breaths(self, surf, cam_x, cam_y, t, st):
-        """树精幽蓝火焰：从嘴部喷出的锥形蓝焰（外层深蓝 -> 中层青 -> 白芯），带飘动与余烬。"""
+        """树精幽蓝火焰：细长白热内核 + 稀疏湍流青蓝火舌 + 蓝色柔光 + 余烬。
+        刻意不用紫色（之前紫雾叠加会糊成一坨紫团）。"""
         L = core.BREATH_LEN
         H = core.BREATH_H
         for br in st.get("breaths", []):
@@ -2217,41 +2218,81 @@ class WorldRenderer:
                 d = 1 if br["dir"] > 0 else -1
                 age = float(br["t"])
                 mx_t = float(br["max"])
-                k = min(1.0, age / 0.12) * min(1.0, (mx_t - age) / 0.25)
+                k = min(1.0, age / 0.10) * min(1.0, (mx_t - age) / 0.22)
                 if k <= 0.01:
                     continue
-                pad = 30
-                fs = pygame.Surface((int(L) + pad * 2, int(H) + pad * 2), pygame.SRCALPHA)
-                ox = pad if d > 0 else fs.get_width() - pad
-                oy = pad + H * 0.5
+                pad = 44
+                fw = int(L) + pad * 2
+                fh = int(H) + pad * 2
+                ox = pad if d > 0 else fw - pad
+                oy = fh * 0.5
+                rnd = random.Random(2026)
 
-                def cone(wk, col):
-                    seg = 10
-                    top, bot = [], []
-                    for i in range(seg + 1):
-                        tt = i / float(seg)
-                        fx = ox + d * L * tt
-                        spread = (6 + (H * 0.5) * tt) * wk
-                        wob = math.sin(t * 13 + tt * 7) * (4 + 7 * tt)
-                        top.append((fx, oy - spread + wob * 0.5))
-                        bot.append((fx, oy + spread + wob * 0.5))
-                    pygame.draw.polygon(fs, col, top + bot[::-1])
+                # ---- 背景蓝色柔光（只覆盖近口一半，避免远端发白）----
+                glow = pygame.Surface((fw, fh), pygame.SRCALPHA)
+                for i in range(7):
+                    tt = (i / 6.0) * 0.55
+                    x = ox + d * L * tt
+                    rr = int(14 + 20 * tt)
+                    a = int(24 * k)
+                    if a > 0:
+                        pygame.draw.circle(glow, (50, 140, 255, a),
+                                           (int(x), int(oy + tt * tt * 10)), rr)
+                surf.blit(glow, (mx - ox, my - oy), special_flags=pygame.BLEND_RGBA_ADD)
 
-                cone(1.0, (28, 70, 170, int(150 * k)))
-                cone(0.66, (70, 170, 240, int(175 * k)))
-                cone(0.34, (200, 245, 255, int(200 * k)))
+                fs = pygame.Surface((fw, fh), pygame.SRCALPHA)
+                # ---- 外层湍流火舌：中间最宽、两端收细（末端散成余烬，不结球）----
+                N = 30
+                for i in range(N):
+                    tt = min(1.0, (i + rnd.random() * 0.8) / N)
+                    x = ox + d * L * (tt ** 0.9)
+                    prof = math.sin(min(1.0, tt) ** 0.8 * math.pi)
+                    spread = 2 + (H * 0.30) * prof
+                    droop = tt * tt * 8
+                    for lobe in (-1, 0, 1):
+                        ph = t * 11.0 + i * 0.9 + lobe * 2.3
+                        scatter = 1.0 + tt * 1.05        # 越远越散（湍流）
+                        yy = (oy + droop + lobe * spread * 0.55 * scatter +
+                              math.sin(ph) * spread * 0.6 * scatter)
+                        rr = max(2, int((4 + 14 * prof) *
+                                        (0.66 + 0.4 * math.sin(t * 8 + i))))
+                        if tt < 0.38:
+                            col = (128, 214, 255)     # 青
+                        elif tt < 0.72:
+                            col = (70, 165, 250)      # 蓝
+                        else:
+                            col = (40, 108, 220)      # 深蓝
+                        a = int((138 - 46 * tt) * k * (0.30 + 0.70 * prof))
+                        if a <= 2:
+                            continue
+                        pygame.draw.circle(fs, (col[0], col[1], col[2], a),
+                                           (int(x), int(yy)), rr)
+                # ---- 白热内核：靠近嘴部最亮，向尖端迅速冷却 ----
+                ncore = 13
+                for i in range(ncore):
+                    tt = i / float(ncore - 1)
+                    cx2 = ox + d * L * 0.72 * tt
+                    cy2 = oy + 4 + math.sin(t * 10 + i * 0.7) * 3
+                    rr2 = int((8.0 - 4.0 * tt) * (0.82 + 0.22 * math.sin(t * 14 + i)))
+                    a2 = int((238 - 120 * tt) * k)
+                    if a2 <= 2:
+                        continue
+                    col = (240, 252, 255) if tt < 0.45 else (172, 236, 255)
+                    pygame.draw.circle(fs, (col[0], col[1], col[2], a2),
+                                       (int(cx2), int(cy2)), max(2, rr2))
                 surf.blit(fs, (mx - ox, my - oy))
-                # 飞散余烬
-                rnd = random.Random(int(br["x"]) * 11 + 5)
-                for i in range(10):
-                    tt = (t * 1.5 + i * 0.17) % 1.0
+                # ---- 嘴部白热核心 ----
+                theme.glow_circle(surf, (int(mx), int(my)), 28,
+                                  (120, 205, 255), 0.5 * k, 3)
+                theme.glow_circle(surf, (int(mx), int(my)), 11,
+                                  (240, 252, 255), 0.72 * k, 2)
+                # ---- 飞散余烬 ----
+                for i in range(12):
+                    tt = (t * 1.6 + i * 0.13) % 1.0
                     fx = mx + d * L * tt
-                    fy = my + rnd.uniform(-H * 0.4, H * 0.4) + math.sin(t * 10 + i) * 4
-                    pygame.draw.circle(surf, (150, 220, 255),
+                    fy = my + rnd.uniform(-H * 0.32, H * 0.32) + math.sin(t * 9 + i) * 5
+                    pygame.draw.circle(surf, (175, 228, 255),
                                        (int(fx), int(fy)), max(1, int(2 * (1 - tt))))
-                # 嘴部强光
-                theme.glow_circle(surf, (int(mx), int(my)), 26, (90, 190, 255),
-                                  0.5 * k, 3)
             except Exception:
                 pass
 
