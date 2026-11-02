@@ -2241,6 +2241,26 @@ class App:
                     self.cam.add_trauma(0.45)
                 elif k == "fall":
                     audio.sfx("fall", 0.7)
+                elif k == "boss_windup":
+                    # 树精举手蓄力：低沉轰鸣 + 汇聚的紫光
+                    audio.sfx("lava", 0.7)
+                    self.cam.add_trauma(0.12)
+                    self.particles.burst("magic", x, y, (168, 90, 232), count=12, power=1.0)
+                elif k == "egg_throw":
+                    audio.sfx("shoot", 0.6)
+                    self.particles.burst("dust", x, y, (220, 210, 190), count=6, power=0.8)
+                elif k == "explode":
+                    # 紫色爆炸：轰击 + 紫色火花 + 屏幕震动
+                    audio.sfx("hammer", 0.85)
+                    self.cam.add_trauma(0.42)
+                    self.post.hit_flash((150, 70, 220), 0.30, full=False)
+                    self.particles.burst("spark", x, y, (190, 110, 250), count=24, power=1.5)
+                    self.particles.burst("magic", x, y, (220, 160, 255), count=14, power=1.2)
+                elif k == "bloom":
+                    # 树精死亡：大地回春的柔和绿光
+                    audio.sfx("checkpoint", 0.7)
+                    self.post.hit_flash((120, 220, 120), 0.22, full=False)
+                    self.particles.burst("heal", x, y - 10, (130, 220, 120), count=26, power=1.3)
                 elif k == "reset":
                     pass
                 sh = fx.screen_shake_for_event(k)

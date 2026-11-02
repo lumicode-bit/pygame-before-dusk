@@ -534,4 +534,5 @@ def screen_shake_for_event(kind):
         "block": 0.18, "pad": 0.1, "portal": 0.5, "win": 0.6,
         "impale": 0.55, "hammer": 0.45, "spike_hit": 0.3, "land": 0.06,
         "break": 0.08, "dash": 0.08, "explode": 0.4,
+        "bloom": 0.2, "boss_windup": 0.12, "egg_throw": 0.05,
     }.get(kind, 0.0)

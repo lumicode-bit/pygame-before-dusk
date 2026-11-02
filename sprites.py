@@ -19,6 +19,9 @@ W, H = 36, 52
 MW, MH = 34, 30
 FW, FH = 36, 28
 
+# 树精 Boss 的缩放倍率（"折中"体量：0.55 → 约 132×165 px，比熔炉守卫 92×99 大一圈）
+TREE_SCALE = 0.55
+
 OUTLINE = (22, 18, 26)
 
 # 每个职业 3 套外观（选人界面可切换）。pal 的键和下面 _character 里用的一致：
@@ -512,14 +515,15 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
             Ln(_S[3][0], _S[3][1], _S[4][0], _S[4][1], 5)
             Ln(_S[3][0] + 1, _S[3][1], _S[4][0] + 1, _S[4][1], 19)
         elif pose == "block":
-            # 举盾格挡：大盾立在前方
-            P([(cx + 5, top + 9), (cx + 12, top + 11), (cx + 12, top + 24),
-               (cx + 5, top + 26)], 3)
-            P([(cx + 6, top + 11), (cx + 11, top + 12), (cx + 11, top + 23),
-               (cx + 6, top + 24)], 5)
-            P([(cx + 7, top + 14), (cx + 10, top + 15), (cx + 10, top + 20),
-               (cx + 7, top + 21)], 4)
-            R(cx + 7, top + 17, cx + 10, top + 18, 8)
+            # 举盾格挡：一面筝形钢盾立在身前（右侧），只此一面，不再叠臂盾
+            P([(cx + 2, top + 8), (cx + 13, top + 8), (cx + 15, top + 13),
+               (cx + 9, top + 30), (cx + 2, top + 15)], 2)        # 盾边（暗）
+            P([(cx + 4, top + 10), (cx + 12, top + 10), (cx + 13, top + 13),
+               (cx + 9, top + 27), (cx + 4, top + 15)], 5)        # 盾面（钢/金）
+            Ln(cx + 4, top + 11, cx + 4, top + 26, 19)            # 左缘高光（亮白）
+            Ln(cx + 9, top + 11, cx + 9, top + 25, 4)             # 中脊凹槽
+            E(cx + 8, top + 18, 2, 2, 4)                          # 符文座
+            R(cx + 8, top + 17, cx + 8, top + 18, 19)             # 符文亮芯
         else:
             # 短剑：宽一点的剑身（3px）+ 亮刃边 + 护手 + 握柄 + 配重
             R(cx + 6, top + 7, cx + 9, top + 16, 2)       # 剑身暗面
@@ -532,23 +536,24 @@ def _character(kind, pose="idle0", frame=0, style="hood"):
             R(cx + 7, top + 17, cx + 9, top + 20, 8)      # 握柄
             R(cx + 7, top + 18, cx + 7, top + 19, 4)
             R(cx + 6, top + 20, cx + 10, top + 21, 5)     # 配重
-        # 左臂 + 盾
+        # 左臂 + 盾（举盾姿势时盾已移到身前，避免出现第二面盾）
         R(cx - 8, top + 15, cx - 6, top + 21, 2)
-        if style == "tower":
-            # 塔盾：方形大盾，竖脊 + 四角铆钉
-            R(cx - 12, top + 12, cx - 6, top + 27, 3)
-            R(cx - 12, top + 12, cx - 6, top + 13, 5)
-            R(cx - 12, top + 12, cx - 12, top + 27, 4)
-            R(cx - 9, top + 13, cx - 9, top + 26, 11)     # 竖脊
-            R(cx - 11, top + 14, cx - 7, top + 15, 5)
-            R(cx - 11, top + 24, cx - 7, top + 25, 5)
-        else:
-            E(cx - 10, top + 19, 4, 5, 5)                 # 外圈金属
-            E(cx - 10, top + 19, 3, 4, 3)                 # 盾面
-            E(cx - 10, top + 18, 2, 2, 4)                 # 上部暗面
-            E(cx - 10, top + 19, 1, 1, 5)                 # 中心凸起
-            R(cx - 12, top + 18, cx - 11, top + 20, 4)    # 左侧暗边
-            R(cx - 11, top + 19, cx - 9, top + 19, 11)    # 横向徽记
+        if pose != "block":
+            if style == "tower":
+                # 塔盾：方形大盾，竖脊 + 四角铆钉
+                R(cx - 12, top + 12, cx - 6, top + 27, 3)
+                R(cx - 12, top + 12, cx - 6, top + 13, 5)
+                R(cx - 12, top + 12, cx - 12, top + 27, 4)
+                R(cx - 9, top + 13, cx - 9, top + 26, 11)     # 竖脊
+                R(cx - 11, top + 14, cx - 7, top + 15, 5)
+                R(cx - 11, top + 24, cx - 7, top + 25, 5)
+            else:
+                E(cx - 10, top + 19, 4, 5, 5)                 # 外圈金属
+                E(cx - 10, top + 19, 3, 4, 3)                 # 盾面
+                E(cx - 10, top + 18, 2, 2, 4)                 # 上部暗面
+                E(cx - 10, top + 19, 1, 1, 5)                 # 中心凸起
+                R(cx - 12, top + 18, cx - 11, top + 20, 4)    # 左侧暗边
+                R(cx - 11, top + 19, cx - 9, top + 19, 11)    # 横向徽记
 
     return g
 
@@ -855,6 +860,12 @@ def get_monster(kind, frame=0):
         s = _render(_caster(frame), CPAL)
         _cache[key] = s
         return s
+    if kind == "tree":
+        # 树精 Boss：复用 treeboss 模块（v4 美术）按 0.55 缩放，缓存一次
+        import treeboss
+        s = treeboss.get_surface(TREE_SCALE)
+        _cache[key] = s
+        return s
     if kind == "fly":
         s = _render(_fly_monster(frame), MPAL_FLY)
     else:
@@ -873,3 +884,4 @@ def prebuild():
         get_monster("fly", f)
         get_monster("boss", f)
         get_monster("caster", f)
+    get_monster("tree", 0)

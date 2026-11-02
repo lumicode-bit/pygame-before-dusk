@@ -147,7 +147,7 @@ check("最后一个检查点离祭坛不贴脸",
 check("Boss 活动范围覆盖出生点",
       core.ALTAR_LEFT * T + 36 <= 165 * T <= (core.FORGE_RIGHT + 1) * T - 36)
 
-print("== 9. 熔炉守卫（Boss）==")
+print("== 9. 树精（终章 Boss）==")
 e = fresh()
 e.wave = 2
 e.wave2_spawned = True
@@ -159,24 +159,28 @@ e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
 e.players[1]["y"] = 15 * T
 step(e, 3)
 flush_rifts(e)
-boss = next((m for m in e.monsters if m.kind == "boss"), None)
-check("进入祭坛唤醒守卫", boss is not None and e.wave == 3)
+boss = next((m for m in e.monsters if m.kind == "tree"), None)
+check("进入祭坛唤醒树精", boss is not None and e.wave == 3)
 if boss:
     states = set()
-    for _ in range(180):
+    threw = False
+    for _ in range(240):
         step(e, 1)
         states.add(boss.state)
-        if "charge" in states:
+        if e.eggs:
+            threw = True
             break
-    check("守卫会蓄力再冲锋", "tele" in states or "charge" in states, str(states))
-    check("蓄力时 flash 递增", boss.flash >= 0 or True)
+    check("树精会举手扔蛋", "throw" in states, str(states))
+    check("扔出的蛋是投射物", threw, "eggs=%d" % len(e.eggs))
     before = len(e.corpses)
+    blooms_before = len(e.blooms)
     boss.hp = 0
     step(e, 2)
-    check("守卫死亡后移除", boss not in e.monsters)
+    check("树精死亡后移除", boss not in e.monsters)
     check("留下死亡残影", len(e.corpses) > before, "corpses=%d" % len(e.corpses))
+    check("死亡后地面焕发生机", len(e.blooms) > blooms_before, "blooms=%d" % len(e.blooms))
     step(e, 2)
-    check("击败守卫后传送门激活", e.portal_active, e.msg[:16])
+    check("击败树精后传送门激活", e.portal_active, e.msg[:16])
 
 print("== 9.5 熔岩术士与精英 ==")
 e = fresh()
@@ -231,12 +235,12 @@ e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
 e.players[1]["y"] = 15 * T
 step(e, 3)
 flush_rifts(e)
-boss = next((m for m in e.monsters if m.kind == "boss"), None)
+boss = next((m for m in e.monsters if m.kind == "tree"), None)
 if boss:
     boss.hp = boss.maxhp * 0.45
     step(e, 4)
     check("半血触发狂暴", boss.enraged)
-    check("狂暴后冲锋更快", True)
+    check("狂暴后扔蛋更频繁", True)
     enrage_evt = any(ev[0] == "boss_enrage" for ev in e.events)
     check("广播狂暴事件", enrage_evt or boss.enraged)
 else:

@@ -288,6 +288,31 @@ SHOCK_DMG = 12
 SHOCK_MAX_R = 260.0
 PARRY_WINDOW = 0.16         # 举盾后这段时间内被打中 = 完美格挡
 
+# ---- 树精 Boss（终章祭坛，取代原熔炉守卫站位）----
+TREE_W, TREE_H = 92, 130          # 碰撞盒（贴树干，比 132×165 精灵窄）
+TREE_HP = 150
+TREE_SPEED = 46.0                 # 树精扎根缓慢挪动
+TREE_TOUCH_DMG = 14
+TREE_EGG_CD = 3.1                 # 扔蛋冷却（普通）
+TREE_EGG_CD_RAGE = 2.0            # 半血后更频繁
+TREE_THROW_RANGE = 640.0          # 超过这个距离不扔（避免打不到）
+TREE_WINDUP = 0.55                # 举手蓄力时长
+TREE_RECOVER = 0.55
+TREE_SCALE = 0.55                 # 与 sprites.TREE_SCALE 一致
+# 蛋（投射物，抛物线）
+EGG_R = 10
+EGG_GRAV = 900.0
+EGG_LIFE = 4.5
+EGG_DMG = 16
+# 紫色爆炸（蛋命中角色/地面/墙体）
+EXPL_R = 78.0                     # 伤害/视觉半径
+EXPL_DMG = 22
+EXPL_TIME = 0.62
+# ---- 岩浆小 Boss（原熔炉守卫迁移到岩浆坑）----
+LAVA_BOSS_TRIGGER_PAD = 150       # 玩家进入岩浆区前后这么多像素就唤醒
+LAVA_BOSS_XMIN = LAVA_LEFT_PX + 26
+LAVA_BOSS_XMAX = LAVA_RIGHT_PX - 26
+
 # 冲刺
 DASH_SPEED = 640.0
 DASH_TIME = 0.16
@@ -488,7 +513,8 @@ class Monster:
                  "stun", "dir", "t", "last_hit", "on_ground", "hit_arrows",
                  "last_lava", "state", "state_t", "flash", "atk_cd",
                  "elite", "enraged", "cast_cd", "anchor_y", "stuck_t",
-                 "phase", "slam_cd", "summoned", "guard_x", "tower")
+                 "phase", "slam_cd", "summoned", "guard_x", "tower",
+                 "arena", "egg_cd", "windup", "lava")
 
     def __init__(self, mid, kind, x, y):
         self.mid = mid
@@ -497,8 +523,9 @@ class Monster:
         self.y = y                    # 底部y(ground) / 中心y(fly)
         self.vx = 0.0
         self.vy = 0.0
-        self.hp = BOSS_HP if kind == "boss" else (
-            FLY_MONSTER_HP if kind == "fly" else GROUND_MONSTER_HP)
+        self.hp = (TREE_HP if kind == "tree" else
+                   BOSS_HP if kind == "boss" else
+                   FLY_MONSTER_HP if kind == "fly" else GROUND_MONSTER_HP)
         self.maxhp = self.hp
         self.stun = 0.0
         self.dir = random.choice([-1, 1])
@@ -521,12 +548,18 @@ class Monster:
         self.summoned = False
         self.guard_x = None        # 守护型：只在这个 x 附近 TOWER_GUARD_R 内活动
         self.tower = False         # 塔内怪物：不计入波次进度
+        self.arena = None          # Boss 活动范围 (xmin, xmax, floor_y)；None = 不限制
+        self.egg_cd = TREE_EGG_CD
+        self.windup = 0.0          # 树精扔蛋蓄力计时
+        self.lava = False          # 岩浆小 Boss：泡在岩浆表面、不坠落
 
     def rect(self):
         if self.kind == "fly":
             return (self.x - FLY_W / 2, self.y - FLY_H, FLY_W, FLY_H)
         if self.kind == "boss":
             return (self.x - BOSS_W / 2, self.y - BOSS_H, BOSS_W, BOSS_H)
+        if self.kind == "tree":
+            return (self.x - TREE_W / 2, self.y - TREE_H, TREE_W, TREE_H)
         if self.kind == "caster":
             return (self.x - CW_HIT / 2, self.y - CH_HIT, CW_HIT, CH_HIT)
         return (self.x - MONSTER_W / 2, self.y - MONSTER_H, MONSTER_W, MONSTER_H)
@@ -708,6 +741,11 @@ class GameEngine:
         self.boss_spawned = False
         self.corpses = []
         self.fireballs = []
+        self.eggs = []              # 树精扔出的蛋（抛物线投射物）
+        self.explosions = []        # 紫色爆炸
+        self.blooms = []            # 树精死亡后地面焕发生机
+        self.lava_boss_spawned = False
+        self.lava_boss_dead = False
         self.shockwaves = []
         self.mods = set()           # 挑战词条：glass / elite / nosupply
         self.difficulty = 1.0        # 难度倍率：0.7 / 1.0 / 1.4
@@ -938,6 +976,9 @@ class GameEngine:
             # 5) 弓箭飞行与碰撞 + 敌方火球
             self._update_arrows(dt)
             self._update_fireballs(dt)
+            self._update_eggs(dt)
+            self._update_explosions(dt)
+            self._update_blooms(dt)
             self._update_shockwaves(dt)
             self._update_vents(dt)
             self._update_rune_gate(dt)
@@ -961,6 +1002,12 @@ class GameEngine:
             #    _alive 还是空 -> wave 走到 3 的 else 分支 -> 传送门提前开启，
             #    玩家可以直接绕过 Boss 通关。
             self._cull_strays(dt)
+            # 岩浆小 Boss：第二波起，玩家踏入岩浆区就唤醒熔炉守卫（已迁到岩浆坑）
+            if (not self.lava_boss_spawned and self.wave >= 2 and not self.rifts
+                    and any(LAVA_LEFT_PX - LAVA_BOSS_TRIGGER_PAD <= p["x"]
+                            <= LAVA_RIGHT_PX + LAVA_BOSS_TRIGGER_PAD
+                            for p in self.players.values())):
+                self._spawn_lava_boss()
             _alive = [m for m in self.monsters if not m.tower]
             if (not self.portal_active and len(_alive) == 0 and not self.rifts
                     and (self.wave1_spawned or self.wave > 1)):
@@ -979,7 +1026,7 @@ class GameEngine:
                         self.wave = 3
                 else:
                     self.portal_active = True
-                    self.msg = "守卫倒下了！传送门激活，两人同时走入即可通关！"
+                    self.msg = "树精倒下了，大地重新焕发生机！传送门激活，两人同时走入即可通关！"
                     self.events.append(("portal", PORTAL_RECT[0] + 80, PORTAL_RECT[1] + 40))
 
             # 8) 任意玩家血量归零 -> 检查点复活（刀刺扎死：先展示血迹与尸体再复活）
@@ -2245,6 +2292,14 @@ class GameEngine:
                     m.maxhp = m.hp
                 m.state = "spawn"
                 m.state_t = 0.55          # 出场动画时长，这段时间是安全的
+                # 按 kind / 标记配置活动范围与岩浆属性
+                if r["kind"] == "tree":
+                    m.arena = (ALTAR_LEFT * TILE + 52,
+                               (FORGE_RIGHT + 1) * TILE - 52, 15 * TILE)
+                elif r.get("lava"):
+                    m.lava = True
+                    m.arena = (LAVA_BOSS_XMIN, LAVA_BOSS_XMAX, LAVA_SURFACE_Y)
+                    m.y = float(LAVA_SURFACE_Y)
                 # 位置就用正常出生点：视觉上的"从黑洞里浮出来"由渲染偏移负责，
                 # 引擎里挪 y 会让 Boss 这种大体型直接陷进祭坛卡住
                 self.monsters.append(m)
@@ -2257,18 +2312,35 @@ class GameEngine:
         self.rifts = keep
 
     def _spawn_boss(self):
+        """终章 Boss：树精。取代原熔炉守卫站在祭坛上。"""
         try:
-            # Boss 也走裂隙出场：更大的黑洞 + 更长的预警，才有"守卫苏醒"的压迫感
             self.rifts.append({
                 "x": float(165 * TILE), "y": float(15 * TILE - 6),
-                "kind": "boss", "elite": False, "t": 0.0,
-                "delay": 1.9, "size": 62.0, "tier": 3,
+                "kind": "tree", "elite": False, "t": 0.0,
+                "delay": 1.9, "size": 70.0, "tier": 3,
             })
             self.boss_spawned = True
-            self.msg = "熔炉守卫苏醒！红光蓄力后会直线冲锋，用冲刺躲开！"
-            self.events.append(("boss_spawn", 165 * TILE, 15 * TILE - 56))
+            self.msg = "树精苏醒了！它会把手里的蛋砸向你——落地会炸出紫色冲击！"
+            self.events.append(("boss_spawn", 165 * TILE, 15 * TILE - 80))
         except Exception as e:
             write_log("Boss 生成异常: %r" % (e,))
+
+    def _spawn_lava_boss(self):
+        """岩浆小 Boss：原熔炉守卫迁移到岩浆坑，泡在岩浆里伏击过路人。"""
+        try:
+            self.rifts.append({
+                "x": float((LAVA_LEFT + LAVA_RIGHT + 1) // 2 * TILE),
+                "y": float(LAVA_SURFACE_Y - 2),
+                "kind": "boss", "elite": False, "t": 0.0,
+                "delay": 1.2, "size": 54.0, "tier": 2, "lava": True,
+            })
+            self.lava_boss_spawned = True
+            self.msg = "岩浆翻涌，熔炉守卫从岩浆中升起！用冲刺躲开它的冲锋！"
+            self.events.append(("boss_spawn",
+                                int((LAVA_LEFT + LAVA_RIGHT + 1) // 2 * TILE),
+                                int(LAVA_SURFACE_Y - 70)))
+        except Exception as e:
+            write_log("岩浆 Boss 生成异常: %r" % (e,))
 
     def _boss_summon(self, m):
         try:
@@ -2315,6 +2387,148 @@ class GameEngine:
             except Exception:
                 pass
         self.shockwaves = out
+
+    # ------------------------------------------------------------------
+    # 树精 Boss：扔蛋 -> 紫色爆炸
+    # ------------------------------------------------------------------
+    def _tree_ai(self, m, dt):
+        """树精扎根缓慢挪动，周期性把手里的蛋砸向最近角色。"""
+        try:
+            alive = [p for p in self.players.values() if p["hp"] > 0]
+            if not alive:
+                m.vx = 0.0
+                return
+            target = min(alive, key=lambda p: abs(p["x"] - m.x))
+            dx = target["x"] - m.x
+            hp_ratio = m.hp / float(max(1, m.maxhp))
+            m.phase = 2 if hp_ratio <= 0.5 else 1
+            if m.phase >= 2 and not m.enraged:
+                m.enraged = True
+                self.events.append(("boss_enrage", int(m.x), int(m.y)))
+            m.flash = 0.0
+            if m.state in ("walk", "recover"):
+                m.dir = 1 if dx > 0 else -1
+            m.state_t += dt
+            if m.state == "throw":
+                m.vx *= 0.82
+                m.windup -= dt
+                # 蓄力越满越亮，给玩家"要扔了"的读秒
+                m.flash = max(0.0, 1.0 - m.windup / TREE_WINDUP) * 0.55
+                if m.windup <= 0.0:
+                    self._spawn_egg(m, target)
+                    m.state = "recover"
+                    m.state_t = 0.0
+            elif m.state == "recover":
+                m.vx *= 0.85
+                if m.state_t >= TREE_RECOVER:
+                    m.state = "walk"
+                    m.state_t = 0.0
+            else:  # walk
+                m.vx = m.dir * TREE_SPEED if abs(dx) > 260 else 0.0
+                m.egg_cd = max(0.0, m.egg_cd - dt)
+                if (m.egg_cd <= 0 and abs(dx) < TREE_THROW_RANGE
+                        and abs(target["y"] - m.y) < 220):
+                    m.state = "throw"
+                    m.state_t = 0.0
+                    m.windup = TREE_WINDUP
+                    m.egg_cd = TREE_EGG_CD_RAGE if m.phase >= 2 else TREE_EGG_CD
+                    self.events.append(("boss_windup", int(m.x), int(m.y - TREE_H + 24)))
+        except Exception as e:
+            write_log("树精 AI 异常: %r" % (e,))
+
+    def _spawn_egg(self, m, target):
+        """从树精胸口出手，按抛物线解算初速度，保证能砸到目标落点。"""
+        try:
+            side = 1 if target["x"] >= m.x else -1
+            sx = m.x + side * 18
+            sy = m.y - TREE_H * 0.78
+            tx, ty = target["x"], target["y"] - 24
+            dist = max(1.0, abs(tx - sx))
+            T = max(0.45, min(1.15, dist / 340.0))
+            vx = (tx - sx) / T
+            vy = (ty - sy - 0.5 * EGG_GRAV * T * T) / T
+            self.eggs.append({
+                "x": float(sx), "y": float(sy),
+                "vx": float(vx), "vy": float(vy),
+                "t": EGG_LIFE, "spin": 0.0, "trail": [],
+            })
+            self.events.append(("egg_throw", int(sx), int(sy)))
+        except Exception as e:
+            write_log("树精扔蛋异常: %r" % (e,))
+
+    def _update_eggs(self, dt):
+        """蛋：抛物线飞行；撞角色/地面/墙体/出界 -> 紫色爆炸。"""
+        out = []
+        for e in self.eggs:
+            try:
+                e["t"] -= dt
+                e["vy"] += EGG_GRAV * dt
+                nx = e["x"] + e["vx"] * dt
+                ny = e["y"] + e["vy"] * dt
+                e["spin"] += dt * 9.0
+                e["trail"].append((e["x"], e["y"]))
+                if len(e["trail"]) > 7:
+                    e["trail"].pop(0)
+                hit = False
+                if (nx < 0 or nx > WORLD_W or ny < 0 or ny > WORLD_H or
+                        self._solid_at(int(nx // TILE), int(ny // TILE))):
+                    hit = True
+                if not hit:
+                    er = (nx - EGG_R, ny - EGG_R, EGG_R * 2, EGG_R * 2)
+                    for p in self.players.values():
+                        if p["hp"] <= 0:
+                            continue
+                        pr = (p["x"] - PLAYER_W / 2, p["y"] - PLAYER_H,
+                              PLAYER_W, PLAYER_H)
+                        if rect_overlap(er, pr):
+                            hit = True
+                            break
+                e["x"], e["y"] = nx, ny
+                if hit or e["t"] <= 0:
+                    self._explode(nx, ny)
+                    continue
+                out.append(e)
+            except Exception:
+                pass
+        self.eggs = out
+
+    def _explode(self, x, y):
+        """紫色爆炸：生成特效 + 一次性范围伤害（盾卫举盾可挡）。"""
+        try:
+            self.explosions.append({
+                "x": float(x), "y": float(y), "r": 0.0,
+                "t": 0.0, "max": EXPL_TIME,
+            })
+            for pid, p in self.players.items():
+                if p["hp"] <= 0 or p["invuln"] > 0:
+                    continue
+                cx, cy = p["x"], p["y"] - PLAYER_H * 0.5
+                if math.hypot(cx - x, cy - y) <= EXPL_R + 8:
+                    if pid == 1 and p["blocking"]:
+                        self.events.append(("block", int(p["x"]), int(p["y"] - 20)))
+                    else:
+                        self._damage_player(pid, EXPL_DMG, "explosion")
+            self.events.append(("explode", int(x), int(y)))
+        except Exception as e:
+            write_log("紫色爆炸异常: %r" % (e,))
+
+    def _update_explosions(self, dt):
+        out = []
+        for ex in self.explosions:
+            ex["t"] += dt
+            k = ex["t"] / max(0.01, ex["max"])
+            ex["r"] = EXPL_R * (0.35 + 0.65 * min(1.0, k * 2.2))
+            if ex["t"] < ex["max"]:
+                out.append(ex)
+        self.explosions = out
+
+    def _update_blooms(self, dt):
+        out = []
+        for b in self.blooms:
+            b["t"] += dt
+            if b["t"] < b["max"]:
+                out.append(b)
+        self.blooms = out
 
     def _boss_ai(self, m, dt):
         """三段式：接近 → 蓄力（红光） → 冲锋 → 收招。"""
@@ -2430,6 +2644,12 @@ class GameEngine:
                             m.vx *= 0.4
                         else:
                             self._caster_ai(m, dt)
+                    elif m.kind == "tree":
+                        if m.stun > 0:
+                            m.stun -= dt
+                            m.vx *= 0.5
+                        else:
+                            self._tree_ai(m, dt)
                     elif m.stun > 0:
                         m.stun -= dt
                         m.vx *= 0.6
@@ -2442,8 +2662,23 @@ class GameEngine:
                         self._fly_monster_ai(m, archer, dt)
 
                     # 物理
-                    if m.kind in ("ground", "boss"):
-                        ew, eh = (BOSS_W, BOSS_H) if m.kind == "boss" else (MONSTER_W, MONSTER_H)
+                    if m.kind == "boss" and m.lava:
+                        # 岩浆小 Boss：泡在岩浆表面，不坠落；水平撞坑壁并被夹在坑内
+                        ew, eh = BOSS_W, BOSS_H
+                        nx = m.x + m.vx * dt
+                        m.x = self._collide_x(m.x, nx, m.y, ew, eh, m.vx)
+                        if m.arena:
+                            m.x = max(m.arena[0], min(m.arena[1], m.x))
+                        m.y = float(LAVA_SURFACE_Y)
+                        m.vy = 0.0
+                        m.on_ground = True
+                    elif m.kind in ("ground", "boss", "tree"):
+                        if m.kind == "tree":
+                            ew, eh = TREE_W, TREE_H
+                        elif m.kind == "boss":
+                            ew, eh = BOSS_W, BOSS_H
+                        else:
+                            ew, eh = MONSTER_W, MONSTER_H
                         m.vy += GRAVITY * dt
                         m.vy = min(m.vy, 1500)
                         prev = m.y
@@ -2453,19 +2688,14 @@ class GameEngine:
                         new_y, grounded = self._collide_y(m.x, m.y, ny, ew, eh, m.vy,
                                                           prev, collide_pads=False, drop=False)
                         m.y = new_y
-                        if m.kind == "boss":
-                            # 关在祭坛石台上：它不会跳台阶，一旦冲出平台就会卡在台阶侧面，
-                            # 玩家只看到血条不见人。这里把它限制在台面范围内。
-                            # 必须由常量推导 —— 原来写死 139/150/15*TILE，地图拉长后
-                            # 守卫会被夹到台下的地面段、y 又被拉回台面高度，
-                            # 表现成"悬空不停下落再瞬移回原位"。
-                            # 注意也**不能**把它放到前庭地面：玩家爬上祭坛它就够不到了，
-                            # 站在台上打不着也下不来，Boss 永远打不死。
-                            m.x = max(ALTAR_LEFT * TILE + 36,
-                                      min((FORGE_RIGHT + 1) * TILE - 36, m.x))
-                            if m.y > 19 * TILE - 40:
-                                m.y = 15 * TILE
+                        if m.arena:
+                            # Boss/树精锁在各自场地里（祭坛 / 岩浆坑），掉出台面就拉回
+                            xmin, xmax, floor_y = m.arena
+                            m.x = max(xmin, min(xmax, m.x))
+                            if m.y > floor_y + 44:
+                                m.y = float(floor_y)
                                 m.vy = 0.0
+                                grounded = True
                         m.on_ground = grounded
                         if grounded and m.vy > 0:
                             m.vy = 0.0    # 落地清空垂直速度
@@ -2482,6 +2712,14 @@ class GameEngine:
                             if m.vy > 0:
                                 m.vy = 0.0
                         m.on_ground = False
+
+                    # 岩浆小 Boss：玩家跑远后沉回岩浆，防止"跳过不打"导致波次永远清不完
+                    if m.lava:
+                        _alive_p = [p for p in self.players.values() if p["hp"] > 0]
+                        if _alive_p and all(p["x"] > LAVA_RIGHT_PX + 420 for p in _alive_p):
+                            self.lava_boss_dead = True
+                            self._kill_monster(m, silent=True)
+                            continue
 
                     # 接触伤害
                     self._monster_contact(m, archer, shield, now)
@@ -2649,6 +2887,8 @@ class GameEngine:
                 m.last_hit[pid] = now
                 if m.kind == "boss":
                     base = BOSS_TOUCH_DMG + (10 if getattr(m, "state", "") == "charge" else 0)
+                elif m.kind == "tree":
+                    base = TREE_TOUCH_DMG
                 elif m.kind == "fly":
                     base = FLY_DMG
                 else:
@@ -2703,8 +2943,20 @@ class GameEngine:
                 for other in list(self.monsters):
                     if other.kind == "caster":
                         self._kill_monster(other, silent=True)
+            # 岩浆小 Boss 沉没 / 被杀都算"已解决"
+            if m.lava:
+                self.lava_boss_dead = True
+            # 树精倒下：附近地面焕发生机（持续生长，渲染端绘制）
+            if m.kind == "tree" and not silent:
+                self.blooms.append({
+                    "x": float(m.x), "y": float(m.y),
+                    "t": 0.0, "max": 9.0, "seed": int(m.mid) * 7 + 13,
+                })
+                self.events.append(("bloom", int(m.x), int(m.y)))
             self.corpses.append({"kind": m.kind, "x": float(m.x), "y": float(m.y),
-                                 "t": 0.0, "max": 1.1 if m.kind == "boss" else 0.55,
+                                 "t": 0.0,
+                                 "max": 1.6 if m.kind == "tree"
+                                 else (1.1 if m.kind == "boss" else 0.55),
                                  "dir": m.dir})
             if len(self.corpses) > 10:
                 del self.corpses[:-10]
@@ -2845,7 +3097,8 @@ class GameEngine:
                          "state": m.state, "state_t": round(m.state_t, 2),
                          "flash": round(m.flash, 2), "dir": m.dir,
                          "elite": bool(m.elite), "enraged": bool(m.enraged),
-                         "phase": m.phase}
+                         "phase": m.phase, "lava": bool(m.lava),
+                         "windup": round(m.windup, 2)}
                         for m in self.monsters]
             plates = [{"id": pl["id"], "active": pl["active"],
                        "remaining": round(pl["remaining"], 2)}
@@ -2895,6 +3148,16 @@ class GameEngine:
                 "chests": chests,
                 "fireballs": [{"x": round(f["x"], 1), "y": round(f["y"], 1), "r": f["r"]}
                               for f in self.fireballs],
+                "eggs": [{"x": round(e["x"], 1), "y": round(e["y"], 1),
+                          "spin": round(e["spin"], 2),
+                          "trail": [(round(tx, 1), round(ty, 1)) for tx, ty in e["trail"]]}
+                         for e in self.eggs],
+                "explosions": [{"x": round(ex["x"], 1), "y": round(ex["y"], 1),
+                                "r": round(ex["r"], 1), "t": round(ex["t"], 3),
+                                "max": ex["max"]} for ex in self.explosions],
+                "blooms": [{"x": round(b["x"], 1), "y": round(b["y"], 1),
+                           "t": round(b["t"], 2), "max": b["max"],
+                           "seed": b["seed"]} for b in self.blooms],
                 "shockwaves": [{"x": round(w["x"], 1), "y": round(w["y"], 1),
                                 "r": round(w["r"], 1)} for w in self.shockwaves],
                 "duo_open": self.duo_gate_open,
@@ -2939,6 +3202,7 @@ class GameEngine:
                     "monsters": [], "rifts": [], "plates": [], "pads": [], "rocks": [],
                     "hammers": [], "fall_rocks": [], "checkpoints": [], "chests": [],
                     "corpses": [], "fireballs": [], "shockwaves": [],
+                    "eggs": [], "explosions": [], "blooms": [],
                     "duo_open": False, "duo_hold": 0.0,
                     "difficulty": 1.0,
                     "weapon_taken": False, "vents": [],

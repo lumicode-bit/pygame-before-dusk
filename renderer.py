@@ -498,6 +498,8 @@ class WorldRenderer:
         # 危险地形
         self._draw_lava(surf, cam_x, cam_y, t)
         self._draw_pit(surf, cam_x, cam_y, t, st)
+        # 树精死亡后：附近地面焕发生机（画在地形之上、实体之下）
+        self._draw_blooms(surf, cam_x, cam_y, t, st)
         # 陷阱
         self._draw_ground_spikes(surf, cam_x, cam_y, t, st)
         self._draw_hammers(surf, cam_x, cam_y, t, st)
@@ -517,9 +519,11 @@ class WorldRenderer:
         self._draw_arrows(surf, cam_x, cam_y, t, st)
         self._draw_corpses(surf, cam_x, cam_y, st)
         self._draw_fireballs(surf, cam_x, cam_y, t, st)
+        self._draw_eggs(surf, cam_x, cam_y, t, st)
         self._draw_shockwaves(surf, cam_x, cam_y, st)
         self._draw_rifts(surf, cam_x, cam_y, t, st)
         self._draw_monsters(surf, cam_x, cam_y, t, st)
+        self._draw_explosions(surf, cam_x, cam_y, t, st)
         self._draw_players(surf, cam_x, cam_y, t, st, focus_pid)
         # 前景
         self._draw_foreground(surf, cam_x, cam_y, t, region)
@@ -2025,7 +2029,7 @@ class WorldRenderer:
                 img = img.copy()
                 img.set_alpha(int(255 * (1.0 - p) ** 1.4))
                 yy = c["y"] - cam_y - int(12 * p)
-                if k in ("ground", "boss"):
+                if k in ("ground", "boss", "tree"):
                     theme.soft_shadow(surf, c["x"] - cam_x, c["y"] - cam_y, 34, 8,
                                       int(90 * (1.0 - p)))
                 surf.blit(img, img.get_rect(midbottom=(c["x"] - cam_x, yy)))
@@ -2046,6 +2050,157 @@ class WorldRenderer:
                     pygame.draw.circle(surf, theme.alpha_color((255, 120, 60), 90 - k * 25),
                                        (x - k * 5, y + int(math.sin(t * 12 + k) * 2)),
                                        max(1, r - k * 2))
+            except Exception:
+                pass
+
+    def _draw_eggs(self, surf, cam_x, cam_y, t, st):
+        """树精扔出的蛋：淡紫危险辉光 + 白色蛋体 + 拖尾。"""
+        for e in st.get("eggs", []):
+            try:
+                x = int(e["x"]) - cam_x
+                y = int(e["y"]) - cam_y
+                trail = e.get("trail", [])
+                for i, (tx, ty) in enumerate(trail):
+                    a = int(120 * (i + 1) / max(1, len(trail)))
+                    pygame.draw.circle(surf, theme.alpha_color((236, 232, 214), a),
+                                       (int(tx) - cam_x, int(ty) - cam_y),
+                                       max(1, 3 - i // 3))
+                r = 10
+                theme.glow_circle(surf, (x, y), r * 2 + 4, (150, 90, 220), 0.30, 2)
+                pygame.draw.ellipse(surf, (24, 18, 26),
+                                    (x - r - 1, y - r - 2, r * 2 + 2, r * 2 + 4))
+                pygame.draw.ellipse(surf, (214, 208, 186),
+                                    (x - r, y - r - 1, r * 2, r * 2 + 2))
+                pygame.draw.ellipse(surf, (244, 240, 220),
+                                    (x - r + 2, y - r + 1, r * 2 - 6, r * 2 - 6))
+                pygame.draw.ellipse(surf, (255, 255, 250),
+                                    (x - r + 4, y - r + 2, 4, 5))
+                sp = float(e.get("spin", 0.0))
+                pygame.draw.circle(surf, (255, 255, 255),
+                                   (x + int(math.cos(sp) * 3), y - 3), 2)
+            except Exception:
+                pass
+
+    def _draw_explosions(self, surf, cam_x, cam_y, t, st):
+        """紫色爆炸：白核 -> 品红 -> 深紫的层次球 + 冲击环 + 放射碎片 + 上升余烬。"""
+        for ex in st.get("explosions", []):
+            try:
+                x = int(ex["x"]) - cam_x
+                y = int(ex["y"]) - cam_y
+                k = max(0.0, min(1.0, ex["t"] / max(0.01, ex["max"])))
+                r = int(ex.get("r", 44))
+                fade = 1.0 - k
+                if fade <= 0.01 or r <= 2:
+                    continue
+                rnd = random.Random(int(ex["x"]) * 31 + int(ex["y"]) * 7)
+                # 地面紫色光斑
+                theme.glow_circle(surf, (x, y), int(r * 1.5), (120, 50, 200),
+                                  0.32 * fade, 3)
+                # 外层紫雾（加法混合，发光感）
+                d = r * 3
+                if d > 0:
+                    s = pygame.Surface((d, d), pygame.SRCALPHA)
+                    for i in range(6, 0, -1):
+                        rr = int(r * i / 6.0)
+                        a = int(74 * fade * (1.0 - i / 7.0))
+                        if a > 0 and rr > 0:
+                            pygame.draw.circle(s, (96, 34, 168, a), (d // 2, d // 2), rr)
+                    surf.blit(s, (x - d // 2, y - d // 2),
+                              special_flags=pygame.BLEND_RGBA_ADD)
+                # 主爆球：深紫 -> 品红 -> 亮紫 -> 白核
+                pygame.draw.circle(surf, (58, 16, 108), (x, y), max(1, int(r * 0.92)))
+                pygame.draw.circle(surf, (146, 58, 216), (x, y), max(1, int(r * 0.64)))
+                pygame.draw.circle(surf, (208, 128, 250), (x, y), max(1, int(r * 0.36)))
+                if k < 0.45:
+                    pygame.draw.circle(surf, (250, 238, 255), (x, y),
+                                       max(1, int(r * 0.17)))
+                # 冲击环
+                ring_r = int(r * (0.5 + k * 1.15))
+                if ring_r > 1:
+                    pygame.draw.circle(surf, theme.alpha_color((222, 160, 255),
+                                                               int(200 * fade)),
+                                       (x, y), ring_r, max(1, int(3 * fade) + 1))
+                # 放射碎片
+                for _i in range(10):
+                    ang = rnd.uniform(0, 6.28)
+                    dd = r * (0.4 + k * 1.35) * rnd.uniform(0.7, 1.1)
+                    px_ = x + math.cos(ang) * dd
+                    py_ = y + math.sin(ang) * dd * 0.8
+                    sz = max(1, int(3 * (1 - k)))
+                    pygame.draw.circle(surf, (200, 120, 255), (int(px_), int(py_)), sz)
+                # 上升余烬
+                for _i in range(8):
+                    ang = rnd.uniform(-2.6, -0.5)
+                    dd = r * (0.3 + k * 0.9)
+                    px_ = x + math.cos(ang) * dd
+                    py_ = y + math.sin(ang) * dd - k * 42
+                    pygame.draw.circle(surf, (240, 200, 255), (int(px_), int(py_)), 1)
+            except Exception:
+                pass
+
+    def _draw_blooms(self, surf, cam_x, cam_y, t, st):
+        """树精死亡：附近地面长出草与花，逐渐焕发生机（带风摆 + 生命波纹 + 花瓣）。"""
+        for b in st.get("blooms", []):
+            try:
+                bx = float(b["x"]) - cam_x
+                by = float(b["y"]) - cam_y
+                age = float(b["t"])
+                prog = max(0.0, min(1.0, age / 1.6))
+                rnd = random.Random(int(b.get("seed", 7)))
+                maxr = 182                     # 收窄，别长到台子外面的空气里
+                # 地面绿光（生命感）
+                theme.glow_circle(surf, (int(bx), int(by) - 6), int(170 * prog),
+                                  (76, 196, 96), 0.22 * prog, 4)
+                # 初段：一圈扩散的绿色生命波纹
+                if age < 0.9:
+                    rr = int(40 + age * 220)
+                    a = int(150 * (1.0 - age / 0.9))
+                    pygame.draw.ellipse(surf, theme.alpha_color((150, 240, 150), a),
+                                        (int(bx - rr), int(by - rr * 0.28),
+                                         rr * 2, int(rr * 0.56)), 2)
+                # 草簇
+                n = 64
+                for i in range(n):
+                    dd = rnd.uniform(-maxr, maxr)
+                    th = rnd.uniform(0.5, 0.92)
+                    if prog < th:
+                        continue
+                    gx = int(bx + dd)
+                    gy = int(by)
+                    gh = int((prog - th) / max(0.01, 1.0 - th) *
+                             rnd.uniform(12, 28)) + 2
+                    sway = math.sin(t * 2.0 + i * 0.7) * 2
+                    base_col = (44, 118, 52) if rnd.random() < 0.5 else (62, 148, 64)
+                    tip_col = (128, 206, 94)
+                    for h in range(gh):
+                        xx = int(gx + sway * h / max(1, gh))
+                        c = base_col if h < gh * 0.6 else tip_col
+                        pygame.draw.line(surf, c, (xx, gy - h), (xx, gy - h - 1), 1)
+                    # 分叉第二片草叶，增加密度
+                    if rnd.random() < 0.55 and gh > 6:
+                        sx2 = gx + (2 if rnd.random() < 0.5 else -2)
+                        for h in range(int(gh * 0.7)):
+                            xx = int(sx2 + sway * h / max(1, gh))
+                            pygame.draw.line(surf, base_col, (xx, gy - h), (xx, gy - h - 1), 1)
+                    # 花
+                    if rnd.random() < 0.34 and gh > 9:
+                        fc = rnd.choice([(250, 230, 120), (250, 160, 190),
+                                         (206, 182, 250), (255, 255, 255),
+                                         (255, 150, 120)])
+                        fx = int(gx + sway)
+                        fy = gy - gh
+                        pygame.draw.circle(surf, fc, (fx, fy), 2)
+                        pygame.draw.circle(surf, (250, 220, 90), (fx, fy), 1)
+                # 飘起的花瓣 / 叶子
+                for i in range(6):
+                    ph = (age * 0.5 + i * 0.37) % 1.0
+                    px_ = bx + math.sin(age * 1.5 + i * 2.0) * (40 + i * 22)
+                    py_ = by - 6 - ph * (70 + i * 12)
+                    a = int(200 * (1.0 - ph) * prog)
+                    if a > 6:
+                        col = (150, 220, 120) if i % 2 else (250, 200, 120)
+                        pygame.draw.circle(surf, theme.alpha_color(col, a),
+                                           (int(px_), int(py_)), 2)
             except Exception:
                 pass
 
@@ -2233,6 +2388,42 @@ class WorldRenderer:
                     _prog = 1.0 - max(0.0, float(m.get("state_t", 0.0))) / 0.55
                     _prog = max(0.0, min(1.0, _prog))
                 _yoff = int((1.0 - _prog) * 22) if _prog is not None else 0
+                if kind == "tree":
+                    # 树精 Boss：体型大、扎根，蓄力时后仰 + 紫色预兆
+                    img = sprites.get_monster("tree", 0)
+                    if m.get("dir", 1) < 0:
+                        img = pygame.transform.flip(img, True, False)
+                    wu = float(m.get("windup", 0.0))
+                    if 0.0 < wu < 0.6:
+                        _k = 1.0 - wu / 0.6
+                        w0, h0 = img.get_size()
+                        img = pygame.transform.scale(
+                            img, (int(w0 * (1 + 0.035 * _k)), int(h0 * (1 - 0.02 * _k))))
+                    r = img.get_rect(midbottom=(int(m["x"]) - cam_x,
+                                               int(m["y"]) - cam_y + 4 + _yoff))
+                    theme.soft_shadow(surf, int(m["x"]) - cam_x,
+                                      int(m["y"]) - cam_y, 62, 16,
+                                      int(120 * (1.0 - (_prog or 0.0))))
+                    # 蓄力：身周泛起紫光，读秒"要扔蛋了"
+                    _fl = float(m.get("flash", 0.0))
+                    if _fl > 0.02:
+                        theme.glow_circle(surf, (r.centerx, r.centery + 8), 96,
+                                          (168, 88, 232), 0.22 + 0.45 * _fl, 4)
+                        theme.glow_circle(surf, (r.centerx, r.top + 40), 34,
+                                          (226, 170, 255), 0.30 + 0.4 * _fl, 2)
+                    if m.get("enraged"):
+                        pulse = 0.55 + 0.45 * math.sin(t * 6)
+                        theme.glow_circle(surf, (r.centerx, r.centery), 70,
+                                          (255, 70, 60), 0.20 + 0.22 * pulse, 3)
+                    surf.blit(img, r)
+                    # 血条
+                    bw = 104
+                    ratio = max(0.0, min(1.0, m["hp"] / float(max(1, m.get("maxhp", 1)))))
+                    bx = r.centerx - bw // 2
+                    by = r.top - 12
+                    pygame.draw.rect(surf, (16, 12, 18), (bx - 1, by - 1, bw + 2, 8), border_radius=4)
+                    pygame.draw.rect(surf, (150, 90, 220), (bx, by, int(bw * ratio), 6), border_radius=3)
+                    continue
                 if kind == "boss":
                     # 手臂跟着状态走：走路摆臂 / 蓄力举拳 / 冲锋前顶 / 砸地
                     _bs = m.get("state", "walk")
@@ -2266,6 +2457,16 @@ class WorldRenderer:
                         # 蓄力：红光越来越亮，给玩家反应时间
                         theme.glow_circle(surf, r.center, 84, (255, 70, 48), 0.30 + 0.55 * fl, 4)
                     theme.glow_circle(surf, (r.centerx, r.centery + 2), 34, (255, 150, 70), 0.55, 3)
+                    if m.get("lava"):
+                        # 岩浆小 Boss：脚下岩浆翻涌（上升泡泡 + 橙光），强化"泡在岩浆里"
+                        for _i in range(5):
+                            _ph = (t * 1.7 + _i * 1.3) % 1.0
+                            _bx = r.centerx + int(math.sin(t * 2 + _i * 2.1) * 26)
+                            _by = r.bottom - 4 - int(_ph * 10)
+                            _br = max(1, int(4 * (1 - _ph)))
+                            pygame.draw.circle(surf, (255, 150, 60), (_bx, _by), _br)
+                        theme.glow_circle(surf, (r.centerx, r.bottom - 2), 58,
+                                          (255, 110, 40), 0.45, 3)
                     # 砸地落拳：两只拳头位置各炸一团火，读起来才是"用手砸"
                     if _bs == "slam" and _bt >= 0.35:
                         _k = max(0.0, 1.0 - (_bt - 0.35) / 0.25)
@@ -2503,7 +2704,11 @@ class WorldRenderer:
             # ---- 武器 / 攻击特效 ----
             if pid == 1:
                 if p.get("blocking"):
-                    self._draw_shield(surf, rect, p["facing"], t)
+                    # 盾牌本体已由精灵 block 姿势绘制；这里只叠一层护盾能量微光，
+                    # 不再画第二面盾（旧版会叠出"两面盾"的怪画面）
+                    _gx = rect.centerx + p["facing"] * 10
+                    theme.glow_circle(surf, (_gx, rect.centery), 26,
+                                      (150, 210, 255), 0.16, 2)
                 sw = p.get("swing", 0.0)
                 # 左右交替的 X 斩：新的一刀出手时，把上一刀留成残影
                 prev = self._slash_last.get(pid, 0.0)
@@ -2542,20 +2747,42 @@ class WorldRenderer:
                 pygame.draw.polygon(surf, theme.GOLD_LIGHT, pts)
 
     def _draw_shield(self, surf, rect, facing, t):
-        """盾卫举盾：金属镶边的筝形盾 + 前缘高光"""
-        w, h = 20, 30
-        x = rect.right + 2 if facing > 0 else rect.left - 2 - w
-        y = rect.centery - h // 2
-        pts = [(x + 3, y), (x + w - 3, y), (x + w, y + 8),
-               (x + w // 2, y + h), (x, y + 8)]
-        pygame.draw.polygon(surf, (92, 78, 58), pts)
-        inner = [(x + 4, y + 3), (x + w - 4, y + 3), (x + w - 3, y + 9),
-                 (x + w // 2, y + h - 4), (x + 3, y + 9)]
-        pygame.draw.polygon(surf, (128, 106, 74), inner)
-        pygame.draw.polygon(surf, (198, 204, 218), pts, 2)
-        pygame.draw.line(surf, (222, 228, 240), (x + w // 2, y + 4), (x + w // 2, y + h - 6), 2)
-        pygame.draw.circle(surf, (222, 206, 160), (x + w // 2, y + 8), 3)
-        theme.glow_circle(surf, (x + w // 2, y + h // 2), 20, (150, 210, 255), 0.22, 2)
+        """盾卫举盾：金属渐变筝形大盾 + 金色包边 + 中心符文呼吸光 + 前缘高光 + 格挡弧光。"""
+        w, h = 24, 34
+        x = rect.right - 2 if facing > 0 else rect.left - w + 2
+        y = rect.centery - h // 2 + 1
+        pts = [(x + 3, y), (x + w - 3, y), (x + w, y + 9),
+               (x + w // 2, y + h), (x, y + 9)]
+        # 底色 -> 内层 -> 受光面（三层模拟金属渐变）
+        pygame.draw.polygon(surf, (36, 42, 56), pts)
+        inner = [(x + 4, y + 3), (x + w - 4, y + 3), (x + w - 3, y + 10),
+                 (x + w // 2, y + h - 4), (x + 3, y + 10)]
+        pygame.draw.polygon(surf, (78, 92, 116), inner)
+        lit = [(x + 4, y + 3), (x + w // 2, y + 3),
+               (x + w // 2 - 1, y + h - 6), (x + 3, y + 10)]
+        pygame.draw.polygon(surf, (110, 128, 156), lit)
+        # 金色包边
+        pygame.draw.polygon(surf, (198, 162, 86), pts, 2)
+        # 中心符文（呼吸发光）
+        cx, cy = x + w // 2, y + 13
+        pulse = 0.55 + 0.45 * math.sin(t * 6)
+        theme.glow_circle(surf, (cx, cy), 13, (120, 200, 255), 0.30 * pulse, 2)
+        pygame.draw.circle(surf, (120, 190, 240), (cx, cy), 4)
+        pygame.draw.circle(surf, (222, 240, 255), (cx, cy), 2)
+        # 迎击方向的前缘高光
+        edge_x = x + w - 3 if facing > 0 else x + 3
+        pygame.draw.line(surf, (224, 234, 248), (edge_x, y + 4), (edge_x, y + h - 10), 2)
+        # 格挡闪光弧（迎击侧）
+        try:
+            arc_a = int(150 * (0.5 + 0.5 * math.sin(t * 9)))
+            if facing > 0:
+                pygame.draw.arc(surf, theme.alpha_color((175, 222, 255), arc_a),
+                                (x - 2, y - 2, w + 6, h + 4), -0.9, 0.9, 2)
+            else:
+                pygame.draw.arc(surf, theme.alpha_color((175, 222, 255), arc_a),
+                                (x - 4, y - 2, w + 6, h + 4), math.pi - 0.9, math.pi + 0.9, 2)
+        except Exception:
+            pass
 
     def _draw_sword(self, surf, rect, facing, prog):
         """挥剑：从后上方劈到前下方的刀光"""

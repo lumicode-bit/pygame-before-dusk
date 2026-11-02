@@ -133,9 +133,10 @@ def test_death():
 
 # ---------------------------------------------------------------- Boss
 def test_boss():
-    print("== 3. Boss 状态机 ==")
+    print("== 3. 熔炉守卫（岩浆小 Boss）状态机 ==")
     e = fresh()
-    e._spawn_boss()
+    # 熔炉守卫已迁到岩浆坑做小 Boss；这里测它的冲锋状态机
+    e._spawn_lava_boss()
     run(e, 70)
     bosses = [m for m in e.monsters if m.kind == "boss"]
     check("裂隙倒计时结束后 Boss 出场", len(bosses) == 1)
@@ -155,13 +156,13 @@ def test_boss():
 
     # 冲锋有距离条件（<430px，三阶段 520px），必须先把玩家挪到 Boss 身边
     for pid in (0, 1):
-        e.players[pid]["x"] = b.x - 260
+        e.players[pid]["x"] = b.x - 160
         e.players[pid]["y"] = b.y
         e.players[pid]["hp"] = e.players[pid]["maxhp"]
     states = set()
     for _ in range(300):
         for pid in (0, 1):
-            e.players[pid]["x"] = b.x - 260
+            e.players[pid]["x"] = b.x - 160
             e.players[pid]["y"] = b.y
             e.players[pid]["hp"] = e.players[pid]["maxhp"]
         e.step({0: {}, 1: {}}, core.TICK_DT)

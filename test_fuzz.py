@@ -199,7 +199,7 @@ for _m in e.monsters:
     if getattr(_m, "state", "") == "spawn":
         _m.state_t = 0.0
 e.step({}, core.TICK_DT)
-boss = next((m for m in e.monsters if m.kind == "boss"), None)
+boss = next((m for m in e.monsters if m.kind in ("boss", "tree")), None)
 check("Boss 存在时传送门保持封印", boss is not None and not e.portal_active)
 if boss:
     # 玩家阵亡 -> 检查点复活，Boss 血量不能被重置
@@ -207,7 +207,7 @@ if boss:
     e.players[0]["hp"] = 0
     e.step({}, core.TICK_DT)
     e.step({}, core.TICK_DT)
-    boss2 = next((m for m in e.monsters if m.kind == "boss"), None)
+    boss2 = next((m for m in e.monsters if m.kind in ("boss", "tree")), None)
     check("复活不清空 Boss 进度", boss2 is not None and boss2.hp == 20,
           "hp=%s" % (boss2.hp if boss2 else "None"))
     check("复活时清空残留火球", len(e.fireballs) == 0, str(len(e.fireballs)))
