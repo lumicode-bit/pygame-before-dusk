@@ -2256,13 +2256,13 @@ class WorldRenderer:
                     pygame.draw.polygon(fs, col, [b1, m1, tip, m2, b2])
 
                 base = 0.0 if d > 0 else math.pi
-                nseg = 5
+                nseg = 4
                 # 由外到内分层：深蓝轮廓 -> 蓝 -> 青 -> 白核（内层后画，压在最上）
                 bands = [
-                    ((26, 64, 150), 1.18, 1.55, 205),
-                    ((44, 120, 230), 0.98, 1.05, 218),
-                    ((108, 204, 255), 0.72, 0.62, 226),
-                    ((236, 250, 255), 0.44, 0.30, 232),
+                    ((26, 64, 150), 1.10, 1.34, 198),
+                    ((44, 120, 230), 0.94, 0.98, 210),
+                    ((108, 204, 255), 0.70, 0.58, 220),
+                    ((236, 250, 255), 0.44, 0.28, 228),
                 ]
                 for (col, lmul, wmul, abase) in bands:
                     a = int(abase * k)
@@ -2271,23 +2271,23 @@ class WorldRenderer:
                     c4 = (col[0], col[1], col[2], a)
                     for i in range(nseg):
                         tt = i / float(nseg - 1)
-                        x0 = ox + d * L * (tt * 0.60)
-                        y0 = oy + 4 + math.sin(t * 9 + i * 1.1) * (4 + 8 * tt)
-                        sway = math.sin(t * 8 + i * 1.3) * 0.13
-                        ln = (L * (0.40 - 0.15 * tt) *
-                              (0.86 + 0.28 * math.sin(t * 12 + i)))
-                        w0 = (8 + 4 * math.sin(t * 10 + i)) * (1.0 - 0.45 * tt)
+                        x0 = ox + d * L * (tt * 0.58)
+                        y0 = oy + 4 + math.sin(t * 9 + i * 1.1) * (3 + 6 * tt)
+                        sway = math.sin(t * 8 + i * 1.3) * 0.09
+                        ln = (L * (0.37 - 0.12 * tt) *
+                              (0.90 + 0.20 * math.sin(t * 12 + i)))
+                        w0 = (7 + 3 * math.sin(t * 10 + i)) * (1.0 - 0.50 * tt)
                         tongue(x0, y0, base + sway, ln * lmul, w0 * wmul, c4)
-                        # 分叉：每段末端分出上下两条小舌（带相位抖动 → 生动）
-                        if i < nseg - 1:
+                        # 分叉：只在中间两段各分出上下两条小舌（克制，不铺满）
+                        if i in (1, 2):
                             fx = x0 + math.cos(base) * ln * 0.62
                             fy = y0 + math.sin(base) * ln * 0.62
                             for sgn in (-1, 1):
-                                fa = base + sgn * (0.42 + 0.18 * math.sin(t * 6 + i + sgn))
-                                fln = ln * (0.58 + 0.18 * math.sin(t * 9 + i + sgn * 2))
-                                fw = w0 * 0.5
-                                tongue(fx, fy, fa, fln * lmul * 1.05,
-                                       fw * wmul * 1.4, c4)
+                                fa = base + sgn * (0.34 + 0.14 * math.sin(t * 6 + i + sgn))
+                                fln = ln * (0.48 + 0.14 * math.sin(t * 9 + i + sgn * 2))
+                                fw = w0 * 0.40
+                                tongue(fx, fy, fa, fln * lmul,
+                                       fw * wmul * 1.15, c4)
                 surf.blit(fs, (mx - ox, my - oy))
                 # ---- 嘴部白热核心 ----
                 theme.glow_circle(surf, (int(mx), int(my)), 28,
