@@ -454,6 +454,8 @@ class WorldRenderer:
         self._slash_ghost = {}       # pid -> [(方向, 已存在时间)]
         self._slash_last = {}        # pid -> 上一帧的 swing 值
         self._lava_cache = {}        # (kind,w,h) -> 静态渐变层
+        self._tree_hp = {}           # mid -> 上一帧血量（检测受击闪白）
+        self._tree_hurt = {}         # mid -> 受击时刻
 
     # ---- 深度（到最近暴露顶面的距离）----
     def _depth(self, gx, gy, solid_fn):
@@ -524,6 +526,7 @@ class WorldRenderer:
         self._draw_rifts(surf, cam_x, cam_y, t, st)
         self._draw_monsters(surf, cam_x, cam_y, t, st)
         self._draw_explosions(surf, cam_x, cam_y, t, st)
+        self._draw_lava_eruptions(surf, cam_x, cam_y, t, st)
         self._draw_players(surf, cam_x, cam_y, t, st, focus_pid)
         # 前景
         self._draw_foreground(surf, cam_x, cam_y, t, region)
@@ -2138,6 +2141,69 @@ class WorldRenderer:
             except Exception:
                 pass
 
+    def _draw_lava_eruptions(self, surf, cam_x, cam_y, t, st):
+        """熔炉守卫的岩浆喷发：预警红圈收缩 -> 岩浆柱喷起 + 溅射。"""
+        ER = core.ERUPT_R
+        for er in st.get("lava_eruptions", []):
+            try:
+                x = int(er["x"]) - cam_x
+                y = int(er["y"]) - cam_y
+                tt = float(er["t"])
+                delay = float(er["delay"])
+                mx = float(er["max"])
+                rnd = random.Random(int(er["x"]) * 17 + 3)
+                if tt < delay:
+                    # ---- 预警：收缩红圈 + 地面透光 + 上升火星 ----
+                    k = tt / max(0.01, delay)
+                    rr = int(ER * (1.35 - 0.35 * k))
+                    a = int(90 + 120 * k)
+                    pygame.draw.ellipse(surf, theme.alpha_color((255, 92, 40), a),
+                                        (x - rr, y - int(rr * 0.32), rr * 2,
+                                         int(rr * 0.64)), 2)
+                    pygame.draw.ellipse(surf, theme.alpha_color((255, 180, 96),
+                                                                int(a * 0.6)),
+                                        (x - int(rr * 0.6), y - int(rr * 0.2),
+                                         int(rr * 1.2), int(rr * 0.4)), 2)
+                    theme.glow_circle(surf, (x, y - 4), int(rr * 0.9),
+                                      (255, 110, 50), 0.16 + 0.32 * k, 3)
+                    for i in range(6):
+                        ph = (t * 2.0 + i * 0.4) % 1.0
+                        px_ = x + rnd.uniform(-rr * 0.6, rr * 0.6)
+                        py_ = y - ph * 30
+                        pygame.draw.circle(surf, (255, 170, 70),
+                                           (int(px_), int(py_)),
+                                           max(1, int(2 * (1 - ph))))
+                else:
+                    # ---- 喷发：岩浆柱（外橙内亮）+ 底部溅射 ----
+                    k = (tt - delay) / max(0.01, mx - delay)      # 0..1
+                    fade = 1.0 - k
+                    if fade <= 0.01:
+                        continue
+                    h = int(120 * (1.0 - (1.0 - k) ** 2)) + 18
+                    w = int(ER * 0.66 * (1.0 - 0.3 * k))
+                    # 柱体外层
+                    pygame.draw.polygon(surf, (255, 120, 40),
+                                        [(x - w, y), (x + w, y),
+                                         (x + int(w * 0.42), y - h),
+                                         (x - int(w * 0.42), y - h)])
+                    # 内层亮芯
+                    pygame.draw.polygon(surf, (255, 236, 176),
+                                        [(x - int(w * 0.4), y), (x + int(w * 0.4), y),
+                                         (x + int(w * 0.16), y - int(h * 0.72)),
+                                         (x - int(w * 0.16), y - int(h * 0.72))])
+                    # 底部热光 + 溅射
+                    theme.glow_circle(surf, (x, y), int(ER * 1.2),
+                                      (255, 120, 40), 0.5 * fade, 3)
+                    for i in range(10):
+                        ang = rnd.uniform(-2.8, -0.3)
+                        dd = rnd.uniform(20, 70) * (0.4 + k)
+                        px_ = x + math.cos(ang) * dd
+                        py_ = y + math.sin(ang) * dd * 0.5 - (1 - k) * 30
+                        pygame.draw.circle(surf, (255, 150, 60),
+                                           (int(px_), int(py_)), max(1, int(3 * fade)))
+            except Exception:
+                pass
+
     def _draw_blooms(self, surf, cam_x, cam_y, t, st):
         """树精死亡：附近地面长出草与花，逐渐焕发生机（带风摆 + 生命波纹 + 花瓣）。"""
         for b in st.get("blooms", []):
@@ -2389,8 +2455,9 @@ class WorldRenderer:
                     _prog = max(0.0, min(1.0, _prog))
                 _yoff = int((1.0 - _prog) * 22) if _prog is not None else 0
                 if kind == "tree":
-                    # 树精 Boss：体型大、扎根，蓄力时后仰 + 紫色预兆
-                    img = sprites.get_monster("tree", 0)
+                    # 树精 Boss：投掷姿势（举手抬蛋）+ 蓄力紫光 + 受击闪白
+                    _st = m.get("state", "walk")
+                    img = sprites.get_monster("tree", 1 if _st == "throw" else 0)
                     if m.get("dir", 1) < 0:
                         img = pygame.transform.flip(img, True, False)
                     wu = float(m.get("windup", 0.0))
@@ -2398,7 +2465,7 @@ class WorldRenderer:
                         _k = 1.0 - wu / 0.6
                         w0, h0 = img.get_size()
                         img = pygame.transform.scale(
-                            img, (int(w0 * (1 + 0.035 * _k)), int(h0 * (1 - 0.02 * _k))))
+                            img, (int(w0 * (1 + 0.03 * _k)), int(h0 * (1 - 0.02 * _k))))
                     r = img.get_rect(midbottom=(int(m["x"]) - cam_x,
                                                int(m["y"]) - cam_y + 4 + _yoff))
                     theme.soft_shadow(surf, int(m["x"]) - cam_x,
@@ -2416,6 +2483,20 @@ class WorldRenderer:
                         theme.glow_circle(surf, (r.centerx, r.centery), 70,
                                           (255, 70, 60), 0.20 + 0.22 * pulse, 3)
                     surf.blit(img, r)
+                    # 受击闪白：血量下降的那一瞬叠一层亮白，逐帧衰减
+                    _hp = int(m["hp"])
+                    _mid = m["mid"]
+                    _prev = self._tree_hp.get(_mid)
+                    if _prev is not None and _hp < _prev:
+                        self._tree_hurt[_mid] = t
+                    self._tree_hp[_mid] = _hp
+                    _ht = self._tree_hurt.get(_mid, -9.0)
+                    if 0.0 <= t - _ht < 0.16:
+                        _k2 = 1.0 - (t - _ht) / 0.16
+                        wf = img.copy()
+                        wf.fill((130, 120, 120), special_flags=pygame.BLEND_RGB_ADD)
+                        wf.set_alpha(int(215 * _k2))
+                        surf.blit(wf, r)
                     # 血条
                     bw = 104
                     ratio = max(0.0, min(1.0, m["hp"] / float(max(1, m.get("maxhp", 1)))))

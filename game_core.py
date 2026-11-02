@@ -312,6 +312,12 @@ EXPL_TIME = 0.62
 LAVA_BOSS_TRIGGER_PAD = 150       # 玩家进入岩浆区前后这么多像素就唤醒
 LAVA_BOSS_XMIN = LAVA_LEFT_PX + 26
 LAVA_BOSS_XMAX = LAVA_RIGHT_PX - 26
+# 岩浆喷发（熔炉守卫在岩浆里的招牌技）：预警 -> 脚下喷起岩浆柱
+ERUPT_CD = 3.6
+ERUPT_DELAY = 0.75          # 预警时长（地上红圈读秒）
+ERUPT_R = 56                # 伤害半径
+ERUPT_DMG = 14
+ERUPT_TIME = 0.5            # 喷发视觉持续
 
 # 冲刺
 DASH_SPEED = 640.0
@@ -514,7 +520,7 @@ class Monster:
                  "last_lava", "state", "state_t", "flash", "atk_cd",
                  "elite", "enraged", "cast_cd", "anchor_y", "stuck_t",
                  "phase", "slam_cd", "summoned", "guard_x", "tower",
-                 "arena", "egg_cd", "windup", "lava")
+                 "arena", "egg_cd", "windup", "lava", "erupt_cd")
 
     def __init__(self, mid, kind, x, y):
         self.mid = mid
@@ -552,6 +558,7 @@ class Monster:
         self.egg_cd = TREE_EGG_CD
         self.windup = 0.0          # 树精扔蛋蓄力计时
         self.lava = False          # 岩浆小 Boss：泡在岩浆表面、不坠落
+        self.erupt_cd = ERUPT_CD   # 岩浆喷发冷却
 
     def rect(self):
         if self.kind == "fly":
@@ -744,6 +751,7 @@ class GameEngine:
         self.eggs = []              # 树精扔出的蛋（抛物线投射物）
         self.explosions = []        # 紫色爆炸
         self.blooms = []            # 树精死亡后地面焕发生机
+        self.lava_eruptions = []    # 岩浆喷发（熔炉守卫技能）
         self.lava_boss_spawned = False
         self.lava_boss_dead = False
         self.shockwaves = []
@@ -978,6 +986,7 @@ class GameEngine:
             self._update_fireballs(dt)
             self._update_eggs(dt)
             self._update_explosions(dt)
+            self._update_lava_eruptions(dt)
             self._update_blooms(dt)
             self._update_shockwaves(dt)
             self._update_vents(dt)
@@ -1431,10 +1440,10 @@ class GameEngine:
                     except Exception:
                         pass
                     for m in list(self.monsters):
-                        if m.kind not in ("ground", "boss"):
+                        if m.kind not in ("ground", "boss", "tree"):
                             continue
                         if rect_overlap(rng, m.rect()):
-                            boss = (m.kind == "boss")
+                            boss = (m.kind in ("boss", "tree"))
                             _pw = float(p.get("power", 1.0))
                             m.hp -= SWORD_DMG * (0.6 if boss else 1.0) * _pw
                             m.stun = 0.12 if boss else 0.5
@@ -2530,6 +2539,41 @@ class GameEngine:
                 out.append(b)
         self.blooms = out
 
+    def _spawn_eruption(self, x, y):
+        """岩浆喷发：先在地面画预警圈，ERUPT_DELAY 后喷起岩浆柱造成伤害。"""
+        try:
+            self.lava_eruptions.append({
+                "x": float(x), "y": float(y),
+                "t": 0.0, "delay": ERUPT_DELAY, "max": ERUPT_DELAY + ERUPT_TIME,
+                "done": False,
+            })
+            self.events.append(("lava", int(x), int(y - 6)))
+        except Exception as e:
+            write_log("岩浆喷发生成异常: %r" % (e,))
+
+    def _update_lava_eruptions(self, dt):
+        out = []
+        for er in self.lava_eruptions:
+            try:
+                er["t"] += dt
+                if not er["done"] and er["t"] >= er["delay"]:
+                    er["done"] = True
+                    self.events.append(("erupt", int(er["x"]), int(er["y"] - 8)))
+                    for pid, p in self.players.items():
+                        if p["hp"] <= 0 or p["invuln"] > 0:
+                            continue
+                        if (abs(p["x"] - er["x"]) <= ERUPT_R and
+                                abs((p["y"] - PLAYER_H * 0.5) - (er["y"] - 20)) <= 70):
+                            if pid == 1 and p["blocking"]:
+                                self.events.append(("block", int(p["x"]), int(p["y"] - 20)))
+                            else:
+                                self._damage_player(pid, ERUPT_DMG, "erupt")
+                if er["t"] < er["max"]:
+                    out.append(er)
+            except Exception:
+                pass
+        self.lava_eruptions = out
+
     def _boss_ai(self, m, dt):
         """三段式：接近 → 蓄力（红光） → 冲锋 → 收招。"""
         try:
@@ -2541,7 +2585,7 @@ class GameEngine:
             dx = target["x"] - m.x
             hp_ratio = m.hp / float(max(1, m.maxhp))
             m.phase = 3 if hp_ratio <= BOSS_PHASE3 else (2 if hp_ratio <= BOSS_PHASE2 else 1)
-            if m.phase >= 3 and not m.summoned:
+            if m.phase >= 3 and not m.summoned and not m.lava:
                 m.summoned = True
                 self._boss_summon(m)
             if m.phase >= 2:
@@ -2550,6 +2594,12 @@ class GameEngine:
                     m.enraged = True
                     m.atk_cd = min(m.atk_cd, 0.5)
                     self.events.append(("boss_enrage", int(m.x), int(m.y)))
+            # 岩浆小 Boss 招牌技：周期性在最近角色脚下喷发岩浆
+            if m.lava:
+                m.erupt_cd = max(0.0, m.erupt_cd - dt)
+                if m.erupt_cd <= 0 and abs(dx) < 560 and m.state not in ("spawn",):
+                    m.erupt_cd = ERUPT_CD * (0.75 if m.enraged else 1.0)
+                    self._spawn_eruption(target["x"], target["y"])
             spd = BOSS_SPEED * (1.4 if m.enraged else 1.0)
             chg = BOSS_CHARGE_SPEED * (1.18 if m.enraged else 1.0)
             tele_t = 0.42 if m.enraged else BOSS_CHARGE_TELE
@@ -2628,7 +2678,7 @@ class GameEngine:
                         m.vx *= 0.4
                         m.vy = 0.0
                         if m.state_t <= 0.0:
-                            m.state = "walk" if m.kind in ("ground", "boss") else "hover"
+                            m.state = "walk" if m.kind in ("ground", "boss", "tree") else "hover"
                             m.state_t = 0.0
                             m.atk_cd = max(m.atk_cd, 0.7)
                         continue
@@ -3019,7 +3069,7 @@ class GameEngine:
                         for m in self.monsters:
                             if m.state == "spawn":     # 出场无敌
                                 continue
-                            if m.kind not in ("fly", "caster", "boss"):
+                            if m.kind not in ("fly", "caster", "boss", "tree"):
                                 continue
                             if a.aid in m.hit_arrows:
                                 continue
@@ -3155,6 +3205,10 @@ class GameEngine:
                 "explosions": [{"x": round(ex["x"], 1), "y": round(ex["y"], 1),
                                 "r": round(ex["r"], 1), "t": round(ex["t"], 3),
                                 "max": ex["max"]} for ex in self.explosions],
+                "lava_eruptions": [{"x": round(er["x"], 1), "y": round(er["y"], 1),
+                                    "t": round(er["t"], 3), "delay": er["delay"],
+                                    "max": er["max"], "done": er["done"]}
+                                   for er in self.lava_eruptions],
                 "blooms": [{"x": round(b["x"], 1), "y": round(b["y"], 1),
                            "t": round(b["t"], 2), "max": b["max"],
                            "seed": b["seed"]} for b in self.blooms],
@@ -3202,7 +3256,7 @@ class GameEngine:
                     "monsters": [], "rifts": [], "plates": [], "pads": [], "rocks": [],
                     "hammers": [], "fall_rocks": [], "checkpoints": [], "chests": [],
                     "corpses": [], "fireballs": [], "shockwaves": [],
-                    "eggs": [], "explosions": [], "blooms": [],
+                    "eggs": [], "explosions": [], "blooms": [], "lava_eruptions": [],
                     "duo_open": False, "duo_hold": 0.0,
                     "difficulty": 1.0,
                     "weapon_taken": False, "vents": [],

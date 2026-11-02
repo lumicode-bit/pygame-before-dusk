@@ -862,8 +862,9 @@ def get_monster(kind, frame=0):
         return s
     if kind == "tree":
         # 树精 Boss：复用 treeboss 模块（v4 美术）按 0.55 缩放，缓存一次
+        # frame 0 = 托蛋待机 / 1 = 举手投掷
         import treeboss
-        s = treeboss.get_surface(TREE_SCALE)
+        s = treeboss.get_surface(TREE_SCALE, "throw" if frame else "idle")
         _cache[key] = s
         return s
     if kind == "fly":

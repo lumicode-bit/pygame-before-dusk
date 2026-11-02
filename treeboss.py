@@ -111,7 +111,7 @@ def line(g, x0, y0, x1, y1, pid, wdt=1):
 
 
 # --------------------------------------------------------------------------
-def build_tree():
+def build_tree(pose="idle"):
     g = blank()
     rng = np.random.RandomState(20261102)
     CX = 120
@@ -350,17 +350,29 @@ def build_tree():
                 ell(g, px + 3, py, 3, 2, 12)
 
     # ============ 7. 左臂 + 鸟蛋 ============
-    poly(g, [(70, 160), (44, 148), (26, 130), (32, 122), (52, 138),
-             (76, 150)], 37)
-    poly(g, [(30, 132), (16, 116), (22, 110), (36, 126)], 37)
-    poly(g, [(32, 138), (16, 136), (16, 129), (32, 131)], 37)
-    line(g, 24, 120, 30, 108, 38, 2)
-    for (fx, fy) in ((18, 104), (26, 100), (34, 104)):
-        line(g, fx, fy, fx - 2, fy - 8, 38, 2)
-        line(g, fx, fy, fx + 1, fy - 9, 39, 1)
+    if pose == "throw":
+        # 举手蓄势：前臂上举、鸟蛋抬到肩上方（要砸下去了）
+        poly(g, [(70, 160), (46, 150), (30, 126), (36, 118), (54, 140),
+                 (76, 150)], 37)                       # 上臂（略抬）
+        poly(g, [(34, 122), (24, 92), (30, 86), (40, 114)], 37)   # 前臂上举
+        line(g, 30, 118, 28, 92, 38, 2)
+        for (fx, fy) in ((24, 84), (32, 80), (40, 84)):
+            line(g, fx, fy, fx - 2, fy - 8, 38, 2)
+            line(g, fx, fy, fx + 1, fy - 9, 39, 1)
+        ECX, ECY = 32, 62
+    else:
+        # 托蛋于身侧（默认）
+        poly(g, [(70, 160), (44, 148), (26, 130), (32, 122), (52, 138),
+                 (76, 150)], 37)
+        poly(g, [(30, 132), (16, 116), (22, 110), (36, 126)], 37)
+        poly(g, [(32, 138), (16, 136), (16, 129), (32, 131)], 37)
+        line(g, 24, 120, 30, 108, 38, 2)
+        for (fx, fy) in ((18, 104), (26, 100), (34, 104)):
+            line(g, fx, fy, fx - 2, fy - 8, 38, 2)
+            line(g, fx, fy, fx + 1, fy - 9, 39, 1)
+        ECX, ECY = 26, 86
 
     # 鸟蛋：上窄下宽的蛋形（不是正圆）
-    ECX, ECY = 26, 86
     egg = []
     N = 44
     for i in range(N):
@@ -487,13 +499,16 @@ def render(g, outline=True):
 _SURF_CACHE = {}
 
 
-def get_surface(scale=0.55):
-    """返回按 scale 缩放的树精 Surface（最近邻，保持像素锐利）。"""
-    key = round(float(scale), 4)
+def get_surface(scale=0.55, pose="idle"):
+    """返回按 scale 缩放的树精 Surface（最近邻，保持像素锐利）。
+
+    pose: "idle" 托蛋 / "throw" 举手蓄势（前臂上举、蛋抬到肩上方）。
+    """
+    key = (round(float(scale), 4), pose)
     s = _SURF_CACHE.get(key)
     if s is not None:
         return s
-    base = render(build_tree(), outline=True)
+    base = render(build_tree(pose), outline=True)
     w, h = base.get_size()
     tw, th = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
     s = pygame.transform.scale(base, (tw, th))

@@ -86,6 +86,15 @@ lb = [m for m in eng.monsters if m.kind == "boss" and m.lava]
 print("lava boss:", len(lb), ("y=%d" % int(lb[0].y)) if lb else "")
 save("boss_6_lava.png")
 
+# 岩浆喷发：强制触发，抓预警与喷发两帧
+if lb:
+    lb[0].erupt_cd = 0.0
+frames(6)
+save("boss_6b_erupt_warn.png")
+frames(40)
+save("boss_6c_erupt_burst.png")
+print("eruptions:", len(eng.lava_eruptions))
+
 # ---- 盾卫举盾（挪到左侧空旷地面，避免被 Boss 挡住）----
 for pid in (0, 1):
     eng.players[pid]["blocking"] = False
