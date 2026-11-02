@@ -2062,14 +2062,18 @@ class App:
                     self.floats.add(x, y - 20, "残敌退散", (176, 168, 190), "small")
                 elif k == "die":
                     kind = ev[3] if len(ev) > 3 else "ground"
-                    if kind == "boss":
+                    if kind in ("boss", "tree"):
                         audio.sfx("death", 1.0)
                         self.cam.add_trauma(0.85)
-                        self.post.hit_flash((255, 200, 140), 0.5, full=True)
+                        if kind == "tree":
+                            self.post.hit_flash((150, 240, 160), 0.5, full=True)
+                        else:
+                            self.post.hit_flash((255, 200, 140), 0.5, full=True)
                         self.particles.burst("spark", x, y - 30, (255, 190, 110), count=40, power=1.8)
                         self.particles.burst("debris", x, y, (150, 140, 130), count=26, power=1.5)
                         self.hitstop = max(self.hitstop, 0.30) if single_mode else 0.0
-                        self.floats.add(x, y - 60, "守卫倒下", theme.GOLD_LIGHT, "title", bold=True)
+                        self.floats.add(x, y - 60, "树精倒下" if kind == "tree" else "守卫倒下",
+                                        theme.GOLD_LIGHT, "title", bold=True)
                     else:
                         audio.sfx("hit", 0.5)
                         self.particles.burst("blood", x, y, (200, 50, 58), count=12, power=1.0)
@@ -2428,7 +2432,7 @@ class App:
         # ---- 目标 / Boss 血条 ----
         boss = None
         for m in st.get("monsters", []):
-            if m.get("kind") == "boss":
+            if m.get("kind") in ("boss", "tree"):
                 boss = m
                 break
         if boss is not None:
@@ -2561,39 +2565,55 @@ class App:
             pass
 
     def _draw_boss_bar(self, s, boss):
-        """Boss 血条：替代普通目标条，附带蓄力警告。"""
+        """Boss 血条：替代普通目标条，附带蓄力/技能警告（区分熔炉守卫 / 树精）。"""
         try:
+            is_tree = (boss.get("kind") == "tree")
+            name = "树精" if is_tree else "熔炉守卫"
+            accent = (150, 90, 220) if is_tree else (255, 110, 70)
+            fill = (150, 90, 220) if is_tree else (255, 126, 62)
             w = 560
             # 70 时血条顶边(70)压住角色卡底边(72)，视觉上贴在卡上；
             # 横幅在 114，所以挪到 76 并压到 34 高，上下各留 4px。
             r = pygame.Rect((SCREEN_W - w) // 2, 76, w, 34)
             self._boss_bar_rect = r        # 供回归测试检查排版
-            theme.rounded_panel(s, r, (26, 14, 16), theme.alpha_color((255, 110, 70), 140), 9,
+            theme.rounded_panel(s, r, (26, 14, 16), theme.alpha_color(accent, 140), 9,
                                 alpha=234, shadow=False)
             ratio = theme.clamp(boss.get("hp", 0) / float(max(1, boss.get("maxhp", 1))))
-            theme.text(s, "熔炉守卫", (r.x + 12, r.y + 6), "small", (255, 218, 186),
+            theme.text(s, name, (r.x + 12, r.y + 6), "small", (255, 218, 186),
                        shadow=False, bold=True)
             theme.text(s, "%d / %d" % (boss.get("hp", 0), boss.get("maxhp", 1)),
                        (r.right - 12, r.y + 6), "tiny", (255, 190, 160), align="right", shadow=False)
             inner = pygame.Rect(r.x + 10, r.y + 24, r.w - 20, 7)
             pygame.draw.rect(s, (44, 20, 22), inner, border_radius=3)
             if ratio > 0:
-                pygame.draw.rect(s, (255, 126, 62),
+                pygame.draw.rect(s, fill,
                                  (inner.x, inner.y, max(2, int(inner.w * ratio)), inner.h),
                                  border_radius=3)
                 pygame.draw.line(s, (255, 210, 170),
                                  (inner.x + 2, inner.y + 1), (inner.x + 2 + int(inner.w * ratio) - 4,
                                                               inner.y + 1), 1)
+            st_ = boss.get("state")
             if boss.get("enraged"):
                 a = 0.5 + 0.5 * math.sin(self.t * 8)
                 # 同"冲锋"：align=midleft 时 y 是中心，r.y+6 会让字顶出面板
                 theme.text(s, "狂暴", (r.x + 92, r.y + 14), "tiny",
                            theme.alpha_color((255, 90, 80), int(160 + 95 * a)),
                            align="midleft", shadow=False)
-            if boss.get("flash", 0) > 0.55 or boss.get("state") == "charge":
+            # 技能预警：树精=喷火/蓄力；熔炉守卫=冲锋/蓄力
+            if is_tree:
+                if st_ == "breathe_fire":
+                    a = 0.5 + 0.5 * math.sin(self.t * 22)
+                    theme.text(s, "喷火！", (r.centerx + 70, r.y + 14), "tiny",
+                               theme.alpha_color((120, 200, 255), int(150 + 105 * a)),
+                               align="center", shadow=False)
+                elif st_ in ("breathe_wind", "throw") and boss.get("flash", 0) > 0.3:
+                    theme.text(s, "蓄力中…", (r.centerx + 70, r.y + 14), "tiny",
+                               theme.alpha_color((150, 200, 255), 200),
+                               align="center", shadow=False)
+            elif boss.get("flash", 0) > 0.55 or st_ == "charge":
                 a = 0.5 + 0.5 * math.sin(self.t * 22)
                 # y 是"中心"（align=center）：写 r.y+6 时 16px 的字会顶出面板上沿
-                theme.text(s, "冲锋！" if boss.get("state") == "charge" else "蓄力中…",
+                theme.text(s, "冲锋！" if st_ == "charge" else "蓄力中…",
                            (r.centerx + 70, r.y + 14), "tiny",
                            theme.alpha_color((255, 120, 90), int(150 + 105 * a)),
                            align="center", shadow=False)

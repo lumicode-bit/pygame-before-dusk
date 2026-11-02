@@ -886,3 +886,4 @@ def prebuild():
         get_monster("boss", f)
         get_monster("caster", f)
     get_monster("tree", 0)
+    get_monster("tree", 1)     # 投掷帧也预热，避免第一次扔蛋时现建卡顿

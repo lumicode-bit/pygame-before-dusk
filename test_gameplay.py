@@ -182,6 +182,31 @@ if boss:
     step(e, 2)
     check("击败树精后传送门激活", e.portal_active, e.msg[:16])
 
+# 回归：树精是站桩 Boss，玩家远离时不能被"游荡清理"误删（否则逃课直接开传送门）
+e = fresh()
+e.wave = 3
+e.wave1_spawned = True
+e.wave2_spawned = True
+for pid in (0, 1):
+    e.players[pid]["x"] = (core.ALTAR_LEFT + 2) * T
+    e.players[pid]["y"] = 15 * T
+e._spawn_boss()
+flush_rifts(e)
+tree = next((m for m in e.monsters if m.kind == "tree"), None)
+if tree:
+    for _ in range(500):          # ~8.3s 远离
+        for pid in (0, 1):
+            e.players[pid]["x"] = tree.x - 1500
+            e.players[pid]["y"] = 15 * T
+        step(e, 1)
+    check("远离树精不会被误清", tree in e.monsters and not e.portal_active)
+    # 回归：复活要清灼烧
+    e.players[0]["burn"] = 2.0
+    e.players[0]["hp"] = 0
+    e.players[1]["hp"] = 0
+    e._respawn_all()
+    check("复活清除灼烧", e.players[0].get("burn", 0) == 0)
+
 print("== 9.5 熔岩术士与精英 ==")
 e = fresh()
 e.players[0]["x"] = 50 * T

@@ -821,7 +821,7 @@ class GameEngine:
                 self._stray_track.clear()
                 return
             alive_p = [p for p in self.players.values() if p["hp"] > 0]
-            live = [m for m in self.monsters if not m.tower and m.kind != "boss"]
+            live = [m for m in self.monsters if not m.tower and m.kind not in ("boss", "tree")]
             if not live or not alive_p:
                 self._stray_t = 0.0
                 self._stray_track.clear()
@@ -1210,6 +1210,8 @@ class GameEngine:
                 p["dash_cd"] = 0.0
                 p["invuln"] = RESPAWN_IFRAME
                 p["on_ground"] = False
+                p["burn"] = 0.0          # 复活清灼烧，否则复活后还在烧
+                p["_burn_tick"] = 0.0
             self.arrows = []
             # 阵亡传送回检查点不算"折返"：不清掉推进基准的话，
             # 结算页会把每次死亡都记成一次主动回头（实测 120 -> 108 记 1 次）。
@@ -3097,6 +3099,7 @@ class GameEngine:
             # 岩浆小 Boss 沉没 / 被杀都算"已解决"
             if m.lava:
                 self.lava_boss_dead = True
+                self.lava_eruptions = []      # 清掉残留喷发，别在胜利瞬间再炸玩家
             # 树精倒下：附近地面焕发生机（持续生长，渲染端绘制）
             if m.kind == "tree" and not silent:
                 self.blooms.append({
@@ -3104,6 +3107,8 @@ class GameEngine:
                     "t": 0.0, "max": 9.0, "seed": int(m.mid) * 7 + 13,
                 })
                 self.events.append(("bloom", int(m.x), int(m.y)))
+                self.eggs = []                # 树精死了，空中的蛋/火焰一并消失
+                self.breaths = []
             self.corpses.append({"kind": m.kind, "x": float(m.x), "y": float(m.y),
                                  "t": 0.0,
                                  "max": 1.6 if m.kind == "tree"
@@ -4208,7 +4213,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             # 1) 攻击范围内地面怪
             best, bd = None, 1e18
             for m in monsters:
-                if m.kind not in ("ground", "boss"):
+                if m.kind not in ("ground", "boss", "tree"):
                     continue
                 # 剑的判定盒只有 SWORD_RANGE(56) 高：不同楼层的怪根本够不着。
                 # 不加这条，AI 会站在平台上"追击"正下方 190px 的怪 —— 横向距离为 0，
@@ -4273,7 +4278,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 return inp
             # 4) 低血且近处有怪 -> 举盾格挡
             if me["hp"] < me["maxhp"] * 0.45 and any(
-                    m.kind in ("ground", "boss") and abs(m.x - px) < 150 for m in monsters):
+                    m.kind in ("ground", "boss", "tree") and abs(m.x - px) < 150 for m in monsters):
                 inp["block"] = True
             # 5) 跟随玩家：优先走导航图（能上塔、能跨楼层），走不通再退回启发式
             if _nav_follow(eng, ai_pid, inp, fx, fy):
@@ -4287,7 +4292,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
         # AI 对着地面怪原地空射（shoot 按住不松，连触发都没有），也不跟随。
         best, bd = None, 1e18
         for m in monsters:
-            if m.kind in ("fly", "caster", "boss"):
+            if m.kind in ("fly", "caster", "boss", "tree"):
                 d = abs(m.x - px) + abs(m.y - py)
                 if d < bd and _los_clear(eng, px, py - 26, m.x, m.y - 12):
                     bd, best = d, m
@@ -4629,7 +4634,7 @@ def make_ai_input(ai_pid, eng, other_pid, cmd="follow", lead=None):
                 except Exception:
                     pass
                 if ai_pid == 1:
-                    inp["block"] = any(abs(m.x - me["x"]) < 110 and m.kind in ("ground", "boss")
+                    inp["block"] = any(abs(m.x - me["x"]) < 110 and m.kind in ("ground", "boss", "tree")
                                        for m in eng.monsters)
     except Exception:
         pass
