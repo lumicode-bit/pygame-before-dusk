@@ -2596,6 +2596,20 @@ class GameEngine:
         except Exception as e:
             write_log("岩浆喷发生成异常: %r" % (e,))
 
+    def _lava_slam_eruptions(self, m):
+        """岩浆 Boss 砸地：在它周围 + 每个角色脚下引发岩浆喷发柱（可走位躲）。"""
+        try:
+            # 周围一圈（从岩浆里喷起）
+            for dx in (-96, 0, 96):
+                self._spawn_eruption(m.x + dx, LAVA_SURFACE_Y)
+            # 每个活着的角色脚下各来一根（威胁岸上/平台上的人）
+            for p in self.players.values():
+                if p["hp"] > 0:
+                    self._spawn_eruption(p["x"], p["y"])
+            self.events.append(("boss_slam", int(m.x), int(m.y)))
+        except Exception as e:
+            write_log("岩浆砸地喷发异常: %r" % (e,))
+
     def _update_lava_eruptions(self, dt):
         out = []
         for er in self.lava_eruptions:
@@ -2725,13 +2739,17 @@ class GameEngine:
             if m.state == "slam":
                 m.vx *= 0.8
                 if m.on_ground and m.state_t > 0.35:
-                    self._spawn_shockwave(m)
+                    if m.lava:
+                        # 岩浆 Boss：砸地引发岩浆喷发柱（比冲击波更贴主题，也能打到岸上）
+                        self._lava_slam_eruptions(m)
+                    else:
+                        self._spawn_shockwave(m)
                     m.state = "recover"
                     m.state_t = 0.0
                     m.slam_cd = BOSS_SLAM_CD
             elif m.state == "walk":
-                # 二阶段起：近身会跳起砸地，制造必须跳过去的冲击波
-                if (m.phase >= 2 and not m.lava and m.slam_cd <= 0
+                # 二阶段起：近身会砸地（守卫=冲击波 / 岩浆=喷发柱）
+                if (m.phase >= 2 and m.slam_cd <= 0
                         and m.on_ground and abs(dx) < 330):
                     m.vy = -BOSS_SLAM_POWER
                     m.state = "slam"
