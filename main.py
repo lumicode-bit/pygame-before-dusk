@@ -2567,7 +2567,7 @@ class App:
     def _draw_boss_bar(self, s, boss):
         """Boss 血条：替代普通目标条，附带蓄力/技能警告（区分熔炉守卫 / 树精）。"""
         try:
-            is_tree = (boss.get("kind") == "tree")
+            is_tree = bool(boss.get("tree"))
             name = "树精" if is_tree else "熔炉守卫"
             accent = (150, 90, 220) if is_tree else (255, 110, 70)
             fill = (150, 90, 220) if is_tree else (255, 126, 62)

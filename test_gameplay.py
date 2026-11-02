@@ -159,7 +159,7 @@ e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
 e.players[1]["y"] = 15 * T
 step(e, 3)
 flush_rifts(e)
-boss = next((m for m in e.monsters if m.kind == "tree"), None)
+boss = next((m for m in e.monsters if m.kind == "boss" and m.tree), None)
 check("进入祭坛唤醒树精", boss is not None and e.wave == 3)
 if boss:
     states = set()
@@ -192,7 +192,7 @@ for pid in (0, 1):
     e.players[pid]["y"] = 15 * T
 e._spawn_boss()
 flush_rifts(e)
-tree = next((m for m in e.monsters if m.kind == "tree"), None)
+tree = next((m for m in e.monsters if m.kind == "boss" and m.tree), None)
 if tree:
     for _ in range(500):          # ~8.3s 远离
         for pid in (0, 1):
@@ -260,7 +260,7 @@ e.players[1]["x"] = (core.ALTAR_LEFT + 1) * T
 e.players[1]["y"] = 15 * T
 step(e, 3)
 flush_rifts(e)
-boss = next((m for m in e.monsters if m.kind == "tree"), None)
+boss = next((m for m in e.monsters if m.kind == "boss" and m.tree), None)
 if boss:
     boss.hp = boss.maxhp * 0.45
     step(e, 4)

@@ -532,7 +532,8 @@ class Monster:
                  "last_lava", "state", "state_t", "flash", "atk_cd",
                  "elite", "enraged", "cast_cd", "anchor_y", "stuck_t",
                  "phase", "slam_cd", "summoned", "guard_x", "tower",
-                 "arena", "egg_cd", "windup", "lava", "erupt_cd", "breath_cd")
+                 "arena", "egg_cd", "windup", "lava", "erupt_cd", "breath_cd",
+                 "tree")
 
     def __init__(self, mid, kind, x, y):
         self.mid = mid
@@ -541,9 +542,8 @@ class Monster:
         self.y = y                    # 底部y(ground) / 中心y(fly)
         self.vx = 0.0
         self.vy = 0.0
-        self.hp = (TREE_HP if kind == "tree" else
-                   BOSS_HP if kind == "boss" else
-                   FLY_MONSTER_HP if kind == "fly" else GROUND_MONSTER_HP)
+        self.hp = BOSS_HP if kind == "boss" else (
+            FLY_MONSTER_HP if kind == "fly" else GROUND_MONSTER_HP)
         self.maxhp = self.hp
         self.stun = 0.0
         self.dir = random.choice([-1, 1])
@@ -572,14 +572,15 @@ class Monster:
         self.lava = False          # 岩浆小 Boss：泡在岩浆表面、不坠落
         self.erupt_cd = ERUPT_CD   # 岩浆喷发冷却
         self.breath_cd = BREATH_CD  # 树精喷幽蓝火焰冷却
+        self.tree = False          # 树精 Boss（kind 仍是 "boss"，用此标记区分外观/技能）
 
     def rect(self):
         if self.kind == "fly":
             return (self.x - FLY_W / 2, self.y - FLY_H, FLY_W, FLY_H)
         if self.kind == "boss":
+            if self.tree:
+                return (self.x - TREE_W / 2, self.y - TREE_H, TREE_W, TREE_H)
             return (self.x - BOSS_W / 2, self.y - BOSS_H, BOSS_W, BOSS_H)
-        if self.kind == "tree":
-            return (self.x - TREE_W / 2, self.y - TREE_H, TREE_W, TREE_H)
         if self.kind == "caster":
             return (self.x - CW_HIT / 2, self.y - CH_HIT, CW_HIT, CH_HIT)
         return (self.x - MONSTER_W / 2, self.y - MONSTER_H, MONSTER_W, MONSTER_H)
@@ -821,7 +822,7 @@ class GameEngine:
                 self._stray_track.clear()
                 return
             alive_p = [p for p in self.players.values() if p["hp"] > 0]
-            live = [m for m in self.monsters if not m.tower and m.kind not in ("boss", "tree")]
+            live = [m for m in self.monsters if not m.tower and m.kind != "boss"]
             if not live or not alive_p:
                 self._stray_t = 0.0
                 self._stray_track.clear()
@@ -1459,10 +1460,10 @@ class GameEngine:
                     except Exception:
                         pass
                     for m in list(self.monsters):
-                        if m.kind not in ("ground", "boss", "tree"):
+                        if m.kind not in ("ground", "boss"):
                             continue
                         if rect_overlap(rng, m.rect()):
-                            boss = (m.kind in ("boss", "tree"))
+                            boss = (m.kind == "boss")
                             _pw = float(p.get("power", 1.0))
                             m.hp -= SWORD_DMG * (0.6 if boss else 1.0) * _pw
                             m.stun = 0.12 if boss else 0.5
@@ -2320,8 +2321,11 @@ class GameEngine:
                     m.maxhp = m.hp
                 m.state = "spawn"
                 m.state_t = 0.55          # 出场动画时长，这段时间是安全的
-                # 按 kind / 标记配置活动范围与岩浆属性
-                if r["kind"] == "tree":
+                # 按标记配置活动范围与属性（树精/岩浆小 Boss 都是 kind="boss"）
+                if r.get("tree"):
+                    m.tree = True
+                    m.hp = TREE_HP * self.difficulty
+                    m.maxhp = m.hp
                     m.arena = (ALTAR_LEFT * TILE + 52,
                                (FORGE_RIGHT + 1) * TILE - 52, 15 * TILE)
                 elif r.get("lava"):
@@ -2344,7 +2348,7 @@ class GameEngine:
         try:
             self.rifts.append({
                 "x": float(165 * TILE), "y": float(15 * TILE - 6),
-                "kind": "tree", "elite": False, "t": 0.0,
+                "kind": "boss", "tree": True, "elite": False, "t": 0.0,
                 "delay": 1.9, "size": 70.0, "tier": 3,
             })
             self.boss_spawned = True
@@ -2781,7 +2785,7 @@ class GameEngine:
                         m.vx *= 0.4
                         m.vy = 0.0
                         if m.state_t <= 0.0:
-                            m.state = "walk" if m.kind in ("ground", "boss", "tree") else "hover"
+                            m.state = "walk" if m.kind in ("ground", "boss") else "hover"
                             m.state_t = 0.0
                             m.atk_cd = max(m.atk_cd, 0.7)
                         continue
@@ -2789,6 +2793,8 @@ class GameEngine:
                         if m.stun > 0:
                             m.stun -= dt
                             m.vx *= 0.5
+                        elif m.tree:
+                            self._tree_ai(m, dt)
                         else:
                             self._boss_ai(m, dt)
                     elif m.kind == "caster":
@@ -2797,12 +2803,6 @@ class GameEngine:
                             m.vx *= 0.4
                         else:
                             self._caster_ai(m, dt)
-                    elif m.kind == "tree":
-                        if m.stun > 0:
-                            m.stun -= dt
-                            m.vx *= 0.5
-                        else:
-                            self._tree_ai(m, dt)
                     elif m.stun > 0:
                         m.stun -= dt
                         m.vx *= 0.6
@@ -2825,8 +2825,8 @@ class GameEngine:
                         m.y = float(LAVA_SURFACE_Y)
                         m.vy = 0.0
                         m.on_ground = True
-                    elif m.kind in ("ground", "boss", "tree"):
-                        if m.kind == "tree":
+                    elif m.kind in ("ground", "boss"):
+                        if m.tree:
                             ew, eh = TREE_W, TREE_H
                         elif m.kind == "boss":
                             ew, eh = BOSS_W, BOSS_H
@@ -3039,9 +3039,8 @@ class GameEngine:
                     continue
                 m.last_hit[pid] = now
                 if m.kind == "boss":
-                    base = BOSS_TOUCH_DMG + (10 if getattr(m, "state", "") == "charge" else 0)
-                elif m.kind == "tree":
-                    base = TREE_TOUCH_DMG
+                    base = (TREE_TOUCH_DMG if m.tree
+                            else BOSS_TOUCH_DMG + (10 if getattr(m, "state", "") == "charge" else 0))
                 elif m.kind == "fly":
                     base = FLY_DMG
                 else:
@@ -3101,7 +3100,8 @@ class GameEngine:
                 self.lava_boss_dead = True
                 self.lava_eruptions = []      # 清掉残留喷发，别在胜利瞬间再炸玩家
             # 树精倒下：附近地面焕发生机（持续生长，渲染端绘制）
-            if m.kind == "tree" and not silent:
+            _sk = "tree" if m.tree else m.kind     # 精灵/表现用的种类
+            if m.tree and not silent:
                 self.blooms.append({
                     "x": float(m.x), "y": float(m.y),
                     "t": 0.0, "max": 9.0, "seed": int(m.mid) * 7 + 13,
@@ -3109,14 +3109,14 @@ class GameEngine:
                 self.events.append(("bloom", int(m.x), int(m.y)))
                 self.eggs = []                # 树精死了，空中的蛋/火焰一并消失
                 self.breaths = []
-            self.corpses.append({"kind": m.kind, "x": float(m.x), "y": float(m.y),
+            self.corpses.append({"kind": _sk, "x": float(m.x), "y": float(m.y),
                                  "t": 0.0,
-                                 "max": 1.6 if m.kind == "tree"
+                                 "max": 1.6 if m.tree
                                  else (1.1 if m.kind == "boss" else 0.55),
                                  "dir": m.dir})
             if len(self.corpses) > 10:
                 del self.corpses[:-10]
-            self.events.append(("die", int(m.x), int(m.y - 10), m.kind))
+            self.events.append(("die", int(m.x), int(m.y - 10), _sk))
         except Exception as e:
             write_log("怪物死亡处理异常: %r" % (e,))
 
@@ -3175,7 +3175,7 @@ class GameEngine:
                         for m in self.monsters:
                             if m.state == "spawn":     # 出场无敌
                                 continue
-                            if m.kind not in ("fly", "caster", "boss", "tree"):
+                            if m.kind not in ("fly", "caster", "boss"):
                                 continue
                             if a.aid in m.hit_arrows:
                                 continue
@@ -3255,6 +3255,7 @@ class GameEngine:
                          "flash": round(m.flash, 2), "dir": m.dir,
                          "elite": bool(m.elite), "enraged": bool(m.enraged),
                          "phase": m.phase, "lava": bool(m.lava),
+                         "tree": bool(m.tree),
                          "windup": round(m.windup, 2)}
                         for m in self.monsters]
             plates = [{"id": pl["id"], "active": pl["active"],
@@ -4213,7 +4214,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             # 1) 攻击范围内地面怪
             best, bd = None, 1e18
             for m in monsters:
-                if m.kind not in ("ground", "boss", "tree"):
+                if m.kind not in ("ground", "boss"):
                     continue
                 # 剑的判定盒只有 SWORD_RANGE(56) 高：不同楼层的怪根本够不着。
                 # 不加这条，AI 会站在平台上"追击"正下方 190px 的怪 —— 横向距离为 0，
@@ -4278,7 +4279,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 return inp
             # 4) 低血且近处有怪 -> 举盾格挡
             if me["hp"] < me["maxhp"] * 0.45 and any(
-                    m.kind in ("ground", "boss", "tree") and abs(m.x - px) < 150 for m in monsters):
+                    m.kind in ("ground", "boss") and abs(m.x - px) < 150 for m in monsters):
                 inp["block"] = True
             # 5) 跟随玩家：优先走导航图（能上塔、能跨楼层），走不通再退回启发式
             if _nav_follow(eng, ai_pid, inp, fx, fy):
@@ -4292,7 +4293,7 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
         # AI 对着地面怪原地空射（shoot 按住不松，连触发都没有），也不跟随。
         best, bd = None, 1e18
         for m in monsters:
-            if m.kind in ("fly", "caster", "boss", "tree"):
+            if m.kind in ("fly", "caster", "boss"):
                 d = abs(m.x - px) + abs(m.y - py)
                 if d < bd and _los_clear(eng, px, py - 26, m.x, m.y - 12):
                     bd, best = d, m
@@ -4634,7 +4635,7 @@ def make_ai_input(ai_pid, eng, other_pid, cmd="follow", lead=None):
                 except Exception:
                     pass
                 if ai_pid == 1:
-                    inp["block"] = any(abs(m.x - me["x"]) < 110 and m.kind in ("ground", "boss", "tree")
+                    inp["block"] = any(abs(m.x - me["x"]) < 110 and m.kind in ("ground", "boss")
                                        for m in eng.monsters)
     except Exception:
         pass

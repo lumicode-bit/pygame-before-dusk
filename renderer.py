@@ -2554,8 +2554,8 @@ class WorldRenderer:
                     _prog = 1.0 - max(0.0, float(m.get("state_t", 0.0))) / 0.55
                     _prog = max(0.0, min(1.0, _prog))
                 _yoff = int((1.0 - _prog) * 22) if _prog is not None else 0
-                if kind == "tree":
-                    # 树精 Boss：投掷姿势（举手抬蛋）+ 蓄力紫光 + 受击闪白
+                if kind == "boss" and m.get("tree"):
+                    # 树精 Boss：kind 仍是 boss，用 tree 标记区分
                     _st = m.get("state", "walk")
                     img = sprites.get_monster("tree", 1 if _st == "throw" else 0)
                     if m.get("dir", 1) < 0:
