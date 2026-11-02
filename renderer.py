@@ -2241,45 +2241,53 @@ class WorldRenderer:
                 surf.blit(glow, (mx - ox, my - oy), special_flags=pygame.BLEND_RGBA_ADD)
 
                 fs = pygame.Surface((fw, fh), pygame.SRCALPHA)
-                # ---- 外层湍流火舌：中间最宽、两端收细（末端散成余烬，不结球）----
-                N = 30
-                for i in range(N):
-                    tt = min(1.0, (i + rnd.random() * 0.8) / N)
-                    x = ox + d * L * (tt ** 0.9)
-                    prof = math.sin(min(1.0, tt) ** 0.8 * math.pi)
-                    spread = 2 + (H * 0.30) * prof
-                    droop = tt * tt * 8
-                    for lobe in (-1, 0, 1):
-                        ph = t * 11.0 + i * 0.9 + lobe * 2.3
-                        scatter = 1.0 + tt * 1.05        # 越远越散（湍流）
-                        yy = (oy + droop + lobe * spread * 0.55 * scatter +
-                              math.sin(ph) * spread * 0.6 * scatter)
-                        rr = max(2, int((4 + 14 * prof) *
-                                        (0.66 + 0.4 * math.sin(t * 8 + i))))
-                        if tt < 0.38:
-                            col = (128, 214, 255)     # 青
-                        elif tt < 0.72:
-                            col = (70, 165, 250)      # 蓝
-                        else:
-                            col = (40, 108, 220)      # 深蓝
-                        a = int((138 - 46 * tt) * k * (0.30 + 0.70 * prof))
-                        if a <= 2:
-                            continue
-                        pygame.draw.circle(fs, (col[0], col[1], col[2], a),
-                                           (int(x), int(yy)), rr)
-                # ---- 白热内核：靠近嘴部最亮，向尖端迅速冷却 ----
-                ncore = 13
-                for i in range(ncore):
-                    tt = i / float(ncore - 1)
-                    cx2 = ox + d * L * 0.72 * tt
-                    cy2 = oy + 4 + math.sin(t * 10 + i * 0.7) * 3
-                    rr2 = int((8.0 - 4.0 * tt) * (0.82 + 0.22 * math.sin(t * 14 + i)))
-                    a2 = int((238 - 120 * tt) * k)
-                    if a2 <= 2:
+
+                def tongue(x0, y0, ang, ln, w0, col):
+                    """一条尖头火舌（根部有宽度，末端收尖，中段略鼓）。"""
+                    ca, sa = math.cos(ang), math.sin(ang)
+                    px, py = -sa, ca
+                    b1 = (x0 + px * w0, y0 + py * w0)
+                    b2 = (x0 - px * w0, y0 - py * w0)
+                    m1 = (x0 + ca * ln * 0.5 + px * w0 * 0.95,
+                          y0 + sa * ln * 0.5 + py * w0 * 0.95)
+                    m2 = (x0 + ca * ln * 0.5 - px * w0 * 0.95,
+                          y0 + sa * ln * 0.5 - py * w0 * 0.95)
+                    tip = (x0 + ca * ln, y0 + sa * ln)
+                    pygame.draw.polygon(fs, col, [b1, m1, tip, m2, b2])
+
+                base = 0.0 if d > 0 else math.pi
+                nseg = 5
+                # 由外到内分层：深蓝轮廓 -> 蓝 -> 青 -> 白核（内层后画，压在最上）
+                bands = [
+                    ((26, 64, 150), 1.18, 1.55, 205),
+                    ((44, 120, 230), 0.98, 1.05, 218),
+                    ((108, 204, 255), 0.72, 0.62, 226),
+                    ((236, 250, 255), 0.44, 0.30, 232),
+                ]
+                for (col, lmul, wmul, abase) in bands:
+                    a = int(abase * k)
+                    if a <= 2:
                         continue
-                    col = (240, 252, 255) if tt < 0.45 else (172, 236, 255)
-                    pygame.draw.circle(fs, (col[0], col[1], col[2], a2),
-                                       (int(cx2), int(cy2)), max(2, rr2))
+                    c4 = (col[0], col[1], col[2], a)
+                    for i in range(nseg):
+                        tt = i / float(nseg - 1)
+                        x0 = ox + d * L * (tt * 0.60)
+                        y0 = oy + 4 + math.sin(t * 9 + i * 1.1) * (4 + 8 * tt)
+                        sway = math.sin(t * 8 + i * 1.3) * 0.13
+                        ln = (L * (0.40 - 0.15 * tt) *
+                              (0.86 + 0.28 * math.sin(t * 12 + i)))
+                        w0 = (8 + 4 * math.sin(t * 10 + i)) * (1.0 - 0.45 * tt)
+                        tongue(x0, y0, base + sway, ln * lmul, w0 * wmul, c4)
+                        # 分叉：每段末端分出上下两条小舌（带相位抖动 → 生动）
+                        if i < nseg - 1:
+                            fx = x0 + math.cos(base) * ln * 0.62
+                            fy = y0 + math.sin(base) * ln * 0.62
+                            for sgn in (-1, 1):
+                                fa = base + sgn * (0.42 + 0.18 * math.sin(t * 6 + i + sgn))
+                                fln = ln * (0.58 + 0.18 * math.sin(t * 9 + i + sgn * 2))
+                                fw = w0 * 0.5
+                                tongue(fx, fy, fa, fln * lmul * 1.05,
+                                       fw * wmul * 1.4, c4)
                 surf.blit(fs, (mx - ox, my - oy))
                 # ---- 嘴部白热核心 ----
                 theme.glow_circle(surf, (int(mx), int(my)), 28,
