@@ -49,7 +49,7 @@ frames(20)
 eng.wave = 3
 eng._spawn_boss()
 frames(160)          # 裂隙 1.9s + 出场
-tree = next((m for m in eng.monsters if m.kind == "tree"), None)
+tree = next((m for m in eng.monsters if m.kind == "boss" and m.tree), None)
 print("tree spawned:", tree is not None, "monsters:", len(eng.monsters))
 if tree:
     print("  tree x,y=", int(tree.x), int(tree.y), "hp=", int(tree.hp))

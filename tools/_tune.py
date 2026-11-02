@@ -31,7 +31,7 @@ def spawn_tree(hp_override=None):
         if getattr(m, "state", "") == "spawn":
             m.state_t = 0.0
     e.step({0: {}, 1: {}}, DT)
-    tree = next((m for m in e.monsters if m.kind == "tree"), None)
+    tree = next((m for m in e.monsters if m.kind == "boss" and m.tree), None)
     if tree is not None and hp_override:
         tree.hp = tree.maxhp = hp_override
     return e, tree

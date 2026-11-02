@@ -2676,8 +2676,15 @@ class GameEngine:
                     p["_burn_tick"] = p.get("_burn_tick", 0.0) - dt
                     if p["_burn_tick"] <= 0:
                         p["_burn_tick"] = BURN_TICK
-                        p["hp"] = max(0, p["hp"] - BURN_TICK_DMG)
+                        # 走统一的难度/统计口径（原来直接扣血：漏了难度倍率、
+                        # 漏了伤害统计、也没有飘字反馈）
+                        dmg = BURN_TICK_DMG * self.difficulty
+                        if "glass" in self.mods:
+                            dmg *= 1.5
+                        self._track_dmg(pid, dmg)
+                        p["hp"] = max(0.0, p["hp"] - dmg)
                         self.events.append(("burn", int(p["x"]), int(p["y"] - 28)))
+                        self.events.append(("dmg", int(p["x"]), int(p["y"] - 46), int(dmg)))
             except Exception:
                 pass
 
@@ -2724,7 +2731,8 @@ class GameEngine:
                     m.slam_cd = BOSS_SLAM_CD
             elif m.state == "walk":
                 # 二阶段起：近身会跳起砸地，制造必须跳过去的冲击波
-                if m.phase >= 2 and m.slam_cd <= 0 and m.on_ground and abs(dx) < 330:
+                if (m.phase >= 2 and not m.lava and m.slam_cd <= 0
+                        and m.on_ground and abs(dx) < 330):
                     m.vy = -BOSS_SLAM_POWER
                     m.state = "slam"
                     m.state_t = 0.0
