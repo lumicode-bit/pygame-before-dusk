@@ -982,6 +982,31 @@ class GameEngine:
             except Exception as e:
                 write_log("刀刺阶板更新异常: %r" % (e,))
 
+            # 0.4.5) 深坑底部保险：掉到坑底又不在阶板上的人会被扎死（防软锁）。
+            # 坑底是实体地面、两侧墙高 6+ 格，掉下去只能靠阶板捞；人+AI 双双
+            # 站上坑底时谁也出不去 -> 站坑底 1.2s 直接判死回检查点。
+            try:
+                for pid in (0, 1):
+                    p = self.players[pid]
+                    if p["hp"] <= 0:
+                        continue
+                    deep = (PIT_COLS[0] * TILE <= p["x"] <= (PIT_COLS[1] + 1) * TILE
+                            and p["y"] > PIT_TOP_Y + 140)
+                    on_plate = (abs(p["y"] - sp["y"]) < 16
+                                and sp["x"] - 6 <= p["x"] <= sp["x"] + SPIKE_PAD_W + 6)
+                    if not (deep and not on_plate):
+                        p["_pit_floor_t"] = 0.0
+                        continue
+                    p["_pit_floor_t"] = p.get("_pit_floor_t", 0.0) + dt
+                    # 7s > 阶板一个周期(5.2s)：刀刺该扎到的先扎，这里只兜
+                    # "站在刀刺永远够不着的坑底"这种真死锁。
+                    if p["_pit_floor_t"] > 7.0:
+                        p["_pit_floor_t"] = 0.0
+                        self.msg = "他们掉进了深坑！"
+                        self._damage_player(pid, 999, "pit")
+            except Exception as e:
+                write_log("深坑底部保险异常: %r" % (e,))
+
             # 0.5) 熔炉长廊：摆锤摆动 + 落石下落
             self._update_hammers(now, dt)
             self._update_fall_rocks(dt)
@@ -4377,13 +4402,19 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             # Boss 单独处理：不要一头扎到它身上（接触伤害 14/次会把盾卫磨死），
             # 停在"剑够得着、但身体不重叠"的窗口里（剑程 56 + 自身半宽 13 ≈ 69）。
             if best is not None and best.kind == "boss" and bd < 460:
+                # 站位距离按 Boss 体宽自适应：树精(92 宽) → 64px，熔炉守卫(64 宽) → 50px。
+                # 固定 64 对窄体型的 Boss 会站到剑够不着的边缘，打成"贴不上也打不着"。
+                try:
+                    _want = best.rect()[2] * 0.5 + 18
+                except Exception:
+                    _want = 64.0
                 if abs(best.x - px) > 200:
                     # 远距离先走导航（绕台阶/沟），近了再收进"够得着但不在身上"的窗口
                     if not _nav_follow(eng, ai_pid, inp, best.x, best.y):
                         advance(best.x, best.y)
                 else:
-                    _ai_boss_standoff(eng, ai_pid, inp, best, 64, 16)
-                if abs(best.x - px) <= 74 and abs(best.y - py) < 52:
+                    _ai_boss_standoff(eng, ai_pid, inp, best, _want, 16)
+                if abs(best.x - px) <= SWORD_RANGE + 20 and abs(best.y - py) < 52:
                     inp["sword"] = True
                 return inp
             if best is not None and bd < SWORD_RANGE * 1.3:
@@ -4434,6 +4465,14 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
                 else:
                     inp["right"] = _duo_x > px
                     inp["left"] = _duo_x < px
+                    # 闸门前有一级两格高的台阶：只按方向会一直顶着台阶站着。
+                    # 单人模式 AI 是盾卫，缺了这段就永远踩不到第二块板 -> 闸门打不开。
+                    if me["on_ground"]:
+                        _d = 1 if inp["right"] else -1
+                        _c = int((px + _d * (PLAYER_W / 2 + 6)) // TILE)
+                        _r = int((py - PLAYER_H * 0.5) // TILE)
+                        if eng._solid_at(_c, _r) or eng._solid_at(_c, _r - 1):
+                            inp["up"] = True
                 return inp
             # 4) 低血且近处有怪 -> 举盾格挡
             if me["hp"] < me["maxhp"] * 0.45 and any(
@@ -4797,13 +4836,36 @@ def _ai_avoid_aoe(eng, ai_pid, inp):
         if pref == 0:
             # 两边都危险/都安全：往远离最近威胁的一侧
             pref = 1
-        inp["right"] = pref > 0
-        inp["left"] = pref < 0
+        # 逃跑方向必须"有地可站"：否则躲开一次喷发却掉进深坑/岩浆，
+        # 反而变成软锁（实测弓手在 91 列深坑边缘躲喷发，直接掉进坑底）。
+        def _safe_dir(d):
+            try:
+                tx = px + d * (PLAYER_W / 2 + 14)
+                c = int(tx // TILE)
+                fr = int(py // TILE)
+                if LAVA_LEFT_PX - 16 <= tx <= LAVA_RIGHT_PX + 16:
+                    return False
+                # 脚下 3 格内要有地板（浅沟也算有），并且不能是深坑列
+                if PIT_COLS[0] * TILE <= tx <= (PIT_COLS[1] + 1) * TILE:
+                    return False
+                return any(eng._solid_at(c, r) for r in range(fr, fr + 3))
+            except Exception:
+                return True
+        _want = 1 if pref > 0 else -1
+        if not _safe_dir(_want):
+            if _safe_dir(-_want):
+                _want = -_want
+            else:
+                # 两边都不能去：宁可站住挨一下，也不掉坑
+                inp["left"] = inp["right"] = False
+                return True
+        inp["right"] = _want > 0
+        inp["left"] = _want < 0
         inp["up"] = False
         inp["dash"] = False
         # 逃跑方向被墙挡住就跳一下（坑壁/台阶）
         try:
-            d = 1 if pref > 0 else -1
+            d = _want
             cx = int((px + d * (PLAYER_W / 2 + 6)) // TILE)
             cy = int((py - PLAYER_H * 0.5) // TILE)
             if eng._solid_at(cx, cy) or eng._solid_at(cx, cy - 1):

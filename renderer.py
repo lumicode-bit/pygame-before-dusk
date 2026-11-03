@@ -2061,19 +2061,34 @@ class WorldRenderer:
                 pass
 
     def _draw_eggs(self, surf, cam_x, cam_y, t, st):
-        """树精扔出的蛋：淡紫危险辉光 + 白色蛋体 + 拖尾。"""
+        """树精扔出的蛋：危险紫辉光 + 白蛋体 + 紫白拖尾 + 高速拖影。"""
         for e in st.get("eggs", []):
             try:
                 x = int(e["x"]) - cam_x
                 y = int(e["y"]) - cam_y
+                vx, vy = float(e.get("vx", 0.0)), float(e.get("vy", 0.0))
+                spd = math.hypot(vx, vy)
+                r = 10
+                # 拖尾：后掠的紫白光点（越旧越小越透明，紫白交替像幽灵火）
                 trail = e.get("trail", [])
                 for i, (tx, ty) in enumerate(trail):
-                    a = int(120 * (i + 1) / max(1, len(trail)))
-                    pygame.draw.circle(surf, theme.alpha_color((236, 232, 214), a),
+                    k = (i + 1) / max(1, len(trail))
+                    a = int(135 * k)
+                    col = theme.alpha_color((198, 150, 255) if i % 2 else (240, 234, 216), a)
+                    pygame.draw.circle(surf, col,
                                        (int(tx) - cam_x, int(ty) - cam_y),
-                                       max(1, 3 - i // 3))
-                r = 10
-                theme.glow_circle(surf, (x, y), r * 2 + 4, (150, 90, 220), 0.30, 2)
+                                       max(1, int(4.0 * k)))
+                # 高速拖影：沿速度反方向的两道短线，读出"砸得很快"
+                if spd > 60:
+                    sx, sy = -vx / spd, -vy / spd
+                    for k in (0.55, 1.0):
+                        pygame.draw.line(
+                            surf, theme.alpha_color((214, 176, 255), int(150 * (1.0 - k))),
+                            (x, y), (int(x + sx * 15 * k), int(y + sy * 15 * k)), 2)
+                # 危险辉光：脉动，让人一眼知道"这东西会炸"
+                pulse = 0.32 + 0.18 * math.sin(t * 9)
+                theme.glow_circle(surf, (x, y), r * 2 + 8, (150, 90, 220), pulse, 3)
+                # 蛋体
                 pygame.draw.ellipse(surf, (24, 18, 26),
                                     (x - r - 1, y - r - 2, r * 2 + 2, r * 2 + 4))
                 pygame.draw.ellipse(surf, (214, 208, 186),
@@ -2184,27 +2199,55 @@ class WorldRenderer:
                     if fade <= 0.01:
                         continue
                     h = int(120 * (1.0 - (1.0 - k) ** 2)) + 18
-                    w = int(ER * 0.66 * (1.0 - 0.3 * k))
-                    # 柱体外层
-                    pygame.draw.polygon(surf, (255, 120, 40),
-                                        [(x - w, y), (x + w, y),
-                                         (x + int(w * 0.42), y - h),
-                                         (x - int(w * 0.42), y - h)])
-                    # 内层亮芯
-                    pygame.draw.polygon(surf, (255, 236, 176),
-                                        [(x - int(w * 0.4), y), (x + int(w * 0.4), y),
-                                         (x + int(w * 0.16), y - int(h * 0.72)),
-                                         (x - int(w * 0.16), y - int(h * 0.72))])
-                    # 底部热光 + 溅射
+                    w = int(ER * 0.6 * (1.0 - 0.3 * k))
+                    # 柱身：一串岩浆团块叠成的柱子（外暗内亮，带湍流抖动），
+                    # 比硬边多边形更有"液体喷出"的感觉
+                    fs = pygame.Surface((w * 2 + 40, h + 44), pygame.SRCALPHA)
+                    ox = fs.get_width() // 2
+                    oy = fs.get_height() - 8
+                    N = 14
+                    for i in range(N):
+                        tt2 = i / float(N - 1)
+                        bx = ox + math.sin(t * 13 + i * 1.7) * (4 + 8 * tt2)
+                        by = oy - h * tt2
+                        rr = int((w * 0.9) * (1.0 - 0.6 * tt2) *
+                                 (0.78 + 0.3 * math.sin(t * 10 + i)))
+                        rr = max(3, rr)
+                        if tt2 < 0.45:
+                            col = (255, 116, 34)
+                        elif tt2 < 0.8:
+                            col = (255, 178, 72)
+                        else:
+                            col = (255, 226, 168)
+                        a = int(235 * fade)
+                        if a <= 2:
+                            continue
+                        pygame.draw.circle(fs, (col[0], col[1], col[2], a),
+                                           (int(bx), int(by)), rr)
+                    # 白热芯：柱心一列亮团（像岩浆管里透出的光）
+                    for i in range(7):
+                        tt2 = i / 6.0
+                        bx = ox + math.sin(t * 11 + i) * 3
+                        by = oy - h * 0.7 * tt2
+                        rr = max(2, int((w * 0.36) * (1.0 - 0.5 * tt2)))
+                        a = int(215 * fade)
+                        if a <= 2:
+                            continue
+                        pygame.draw.circle(fs, (255, 240, 200, a),
+                                           (int(bx), int(by)), rr)
+                    surf.blit(fs, (x - ox, y - oy + 8))
+                    # 底部热光
                     theme.glow_circle(surf, (x, y), int(ER * 1.2),
                                       (255, 120, 40), 0.5 * fade, 3)
-                    for i in range(10):
-                        ang = rnd.uniform(-2.8, -0.3)
-                        dd = rnd.uniform(20, 70) * (0.4 + k)
-                        px_ = x + math.cos(ang) * dd
-                        py_ = y + math.sin(ang) * dd * 0.5 - (1 - k) * 30
-                        pygame.draw.circle(surf, (255, 150, 60),
-                                           (int(px_), int(py_)), max(1, int(3 * fade)))
+                    # 溅射：向外抛的岩浆点（大小随机，读出"砸得四溅"）
+                    for i in range(12):
+                        ang = rnd.uniform(-2.9, -0.25)
+                        dd = rnd.uniform(24, ER * 1.15) * (0.4 + k)
+                        py_ = y + math.sin(ang) * dd * 0.5 - (1 - k) * 34
+                        sz = max(1, int(3.4 * fade * (1.0 - 0.4 * rnd.random())))
+                        col = (255, 150, 60) if i % 2 else (255, 208, 130)
+                        pygame.draw.circle(surf, col,
+                                           (int(x + math.cos(ang) * dd), int(py_)), sz)
             except Exception:
                 pass
 
