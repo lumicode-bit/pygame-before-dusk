@@ -2061,7 +2061,7 @@ class App:
                     return w0 + (w1 - w0) * k
             return CP[-1][1]
 
-        seg = 24
+        seg = 44   # 段数越多明暗越平滑（贴图缓存，不影响每帧性能）
         for y in range(bh):
             t = y / float(bh - 1)
             hw = half_at(t)
@@ -2243,18 +2243,50 @@ class App:
         pygame.draw.circle(s, (52, 36, 24), (swx, lip_y - 2), 13)
         pygame.draw.circle(s, (94, 68, 42), (swx - 4, lip_y - 6), 5)
 
-        # 裂纹：每响一道，从口沿往上裂
-        rnd = random.Random(20261103)
-        for i in range(n):
-            x0 = cx + rnd.randint(-76, 76)
-            y0 = lip_y - 12
+        # 裂纹：每响一道。真裂纹要"分叉 + 渐细 + 明暗边"，
+        # 之前是一条等宽的锯齿线，看着像闪电涂鸦。
+        crnd = random.Random(20261103)
+        for ci in range(n):
+            # 起点沿口沿分布，每道错开
+            x0 = cx + int(-88 + 176 * ((ci + 0.5) / 3.0) + crnd.randint(-18, 18))
+            y0 = lip_y - 14
+            # 主裂纹：折线，越往上越细
+            pts = [(x0, y0)]
             px_, py_ = x0, y0
-            for seg in range(5):
-                nx = px_ + rnd.randint(-11, 11)
-                ny = py_ - rnd.randint(20, 36)
-                pygame.draw.line(s, (14, 10, 8), (px_, py_), (nx, ny), 3)
-                pygame.draw.line(s, (156, 118, 74), (px_ + 2, py_), (nx + 2, ny), 1)
-                px_, py_ = nx, ny
+            _segs = crnd.randint(8, 11)
+            _dir = crnd.choice((-1, 1))          # 主方向：裂口不来回折，会打出"小钩子"
+            for _sg in range(_segs):
+                if crnd.random() < 0.20:
+                    # 台阶：脆性断裂会突然横跳，但方向要连贯
+                    px_ += _dir * crnd.randint(9, 15)
+                    py_ -= crnd.randint(3, 7)
+                else:
+                    px_ += _dir * crnd.randint(1, 6)
+                    py_ -= crnd.randint(14, 24)
+                pts.append((px_, py_))
+            # 画：深色芯 + 左上亮边（金属裂口反光），线宽随高度递减
+            for _i in range(len(pts) - 1):
+                (ax, ay), (bx2, by2) = pts[_i], pts[_i + 1]
+                _w = 4 if _i < 2 else (3 if _i < 4 else (2 if _i < 7 else 1))
+                # 沟：芯黑、右下更黑（阴影）、左上亮（裂口反光）
+                pygame.draw.line(s, (14, 9, 7), (ax, ay), (bx2, by2), _w)
+                if _w >= 3:
+                    # 只在最粗的几段压一条亮边（裂口反光），否则整条像双线描边
+                    pygame.draw.line(s, (152, 116, 74), (ax - 1, ay - 1), (bx2 - 1, by2 - 1), 1)
+            # 起点崩口：敲击处崩掉一小块
+            pygame.draw.circle(s, (10, 7, 5), (x0, y0), 3)
+            pygame.draw.circle(s, (150, 114, 72), (x0 - 2, y0 - 1), 1)
+            # 分叉：从中段岔出一条细纹
+            if len(pts) > 4:
+                _bi = crnd.randint(2, len(pts) - 2)
+                bx_, by_ = pts[_bi]
+                _bd = crnd.choice((-1, 1))
+                for _sg in range(crnd.randint(2, 4)):
+                    nx_ = bx_ + _bd * crnd.randint(3, 9)
+                    ny_ = by_ - crnd.randint(6, 15)
+                    pygame.draw.line(s, (14, 9, 7), (bx_, by_), (nx_, ny_), 1)
+                    pygame.draw.line(s, (132, 100, 62), (bx_ - 1, by_), (nx_ - 1, ny_), 1)
+                    bx_, by_ = nx_, ny_
 
         # 落灰：每响一次，从口沿往下飘
         for i, r in enumerate(RINGS):
