@@ -536,4 +536,5 @@ def screen_shake_for_event(kind):
         "break": 0.08, "dash": 0.08, "explode": 0.4,
         "bloom": 0.2, "boss_windup": 0.12, "egg_throw": 0.05, "erupt": 0.3,
         "breath": 0.24, "burn": 0.04, "boss_slam_wind": 0.10,
+        "boss_heal": 0.0, "fail": 0.55,
     }.get(kind, 0.0)

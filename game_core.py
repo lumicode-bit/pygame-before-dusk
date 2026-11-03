@@ -339,6 +339,8 @@ DASH_IFRAME = 0.22
 RESPAWN_IFRAME = 1.6
 RESPAWN_HP_RATIO = 0.6
 RESPAWN_HP_FLOOR = 0.5     # 复活血量下限 = cap * 该值（约 30% 最大血）
+START_LIVES = 5            # 队伍生命：只有"人类"阵亡才扣（单人模式 AI 死亡不扣命）
+BOSS_WIPE_HEAL = 0.08      # 团灭惩罚：场上 Boss 回复 8% 最大血（防止拿命磨）
 
 SWORD_RANGE = 56
 SWORD_DMG = 1.5
@@ -602,6 +604,9 @@ class GameEngine:
         self._ai_dist_t = 0.0
         self.tick = 0
         self.deaths = 0
+        self.lives = START_LIVES      # 剩余生命（人类阵亡才扣）
+        self.max_lives = START_LIVES
+        self.fail = False             # 生命耗尽 -> 本局失败（冻结世界，交给结算页）
         self.kills = 0
         self.elapsed = 0.0
         self._night_next = 0.0
@@ -714,6 +719,9 @@ class GameEngine:
         self.wave2_spawned = False
         self.wave2_cleared = False
         self.deaths = 0
+        self.lives = START_LIVES
+        self.max_lives = START_LIVES
+        self.fail = False
         self.kills = 0
         self.elapsed = 0.0
         self._night_next = 0.0
@@ -914,6 +922,11 @@ class GameEngine:
     def step(self, inputs, dt):
         try:
             dt = max(0.001, min(dt, 0.05))
+            if self.fail:
+                # 生命耗尽：世界完全冻结（时间/物理/怪物都不再推进）。
+                # 这里要清空事件，否则上一帧的 fail 事件会被反复重放（音效连响）。
+                self.events = []
+                return
             self.tick += 1
             self.elapsed += dt
             self.events = []
@@ -1061,7 +1074,7 @@ class GameEngine:
 
             # 8) 任意玩家血量归零 -> 检查点复活（刀刺扎死：先展示血迹与尸体再复活）
             any_dead = any(p["hp"] <= 0 for p in self.players.values())
-            if any_dead and not self.win:
+            if any_dead and not self.win and not self.fail:
                 if self._spike_kill_msg and self._death_pending > 0:
                     self._death_pending -= dt
                     # 尸体钉在刀刺阶板上随板沉浮，血迹保持可见
@@ -1188,16 +1201,61 @@ class GameEngine:
             write_log("同伴归队异常: %r" % (e,))
 
     def _respawn_all(self, reason=""):
-        """全队阵亡 -> 在最近激活的检查点复活（不再整关重置）。"""
+        """全队阵亡 -> 在最近激活的检查点复活；人类阵亡会消耗一条命。"""
         try:
-            self.deaths += 1
+            if self.fail:
+                return
             self._death_pending = 0.0
             self._spike_kill_msg = ""
-            if self._respawn_point:
-                rx, ry = self._respawn_point
+            # ---- 生命池：只有"人类"阵亡才扣命 ----
+            # 单人模式下 AI 是队友，它送死不该让玩家输；双人联机时任意一人倒下就算团灭
+            if self.ai_pid is not None:
+                human_pid = 1 - int(self.ai_pid)
+                human_dead = self.players[human_pid]["hp"] <= 0
+                cost = 1 if human_dead else 0
             else:
-                rx, ry = PLAYER_START[0][0], 19 * TILE
-            for pid in (0, 1):
+                human_pid = None
+                human_dead = True
+                cost = 1
+            if cost:
+                # 只统计"人类阵亡"：单人模式下 AI 反复倒地不该拉低结算评级
+                self.deaths += 1
+                self.lives = max(0, self.lives - cost)
+                # 团灭惩罚：场上 Boss 回血，否则可以拿命一条条磨死
+                healed = 0.0
+                heal_pos = None
+                for m in self.monsters:
+                    if m.kind == "boss" and m.hp > 0:
+                        before = m.hp
+                        m.hp = min(m.maxhp, m.hp + m.maxhp * BOSS_WIPE_HEAL)
+                        healed += m.hp - before
+                        if heal_pos is None:
+                            heal_pos = (int(m.x), int(m.y - 60))
+                if healed > 0 and heal_pos:
+                    self.events.append(("boss_heal", heal_pos[0], heal_pos[1]))
+            if self.lives <= 0:
+                # 生命耗尽：本局失败（冻结世界，由结算页接管）
+                self.fail = True
+                self.msg = "生命耗尽……远征失败"
+                self.events.append(("fail", 0, 0))
+                return
+            # ---- 复活 ----
+            if self.ai_pid is not None and not human_dead:
+                # 只有 AI 倒下：只在人类身边补位，**不把人拖回检查点**
+                # （否则单人打 Boss 时队友一死你就被拽走，体验极差）
+                hx = float(self.players[human_pid]["x"])
+                hy = float(self.players[human_pid]["y"])
+                rx, ry = hx - 90.0, hy
+                targets = [int(self.ai_pid)]
+                self.msg = reason or "同伴倒下了，已在身边补位"
+            else:
+                if self._respawn_point:
+                    rx, ry = self._respawn_point
+                else:
+                    rx, ry = PLAYER_START[0][0], 19 * TILE
+                targets = [0, 1]
+                self.msg = reason or "队伍阵亡！已在检查点复活"
+            for pid in targets:
                 p = self.players[pid]
                 # 修复"送死回血"：复活血量不超过死前血量，且不超过 60%
                 cap = float(p["maxhp"]) * RESPAWN_HP_RATIO
@@ -1221,7 +1279,6 @@ class GameEngine:
             # 结算页会把每次死亡都记成一次主动回头（实测 120 -> 108 记 1 次）。
             self._prog_max = max(p["x"] for p in self.players.values())
             self._rev_armed = True
-            self.msg = reason or "队伍阵亡！已在检查点复活"
             self.events.append(("respawn", int(rx), int(ry)))
         except Exception as e:
             write_log("复活处理异常: %r" % (e,))
@@ -3428,6 +3485,9 @@ class GameEngine:
                 "events": list(self.events),
                 "chat": list(self.chat[-8:]),
                 "deaths": self.deaths,
+                "lives": self.lives,
+                "max_lives": self.max_lives,
+                "fail": self.fail,
                 "kills": self.kills,
                 "elapsed": round(self.elapsed, 1),
                 "dusk": round(min(1.0, self.elapsed / DUSK_FULLNIGHT), 3),
@@ -3460,6 +3520,7 @@ class GameEngine:
                     "rune_open": False,
                     "portal": False, "win": False, "wave": 1, "left": 0,
                     "msg": "", "events": [], "chat": [], "deaths": 0,
+                    "lives": START_LIVES, "max_lives": START_LIVES, "fail": False,
                     "kills": 0, "elapsed": 0.0, "respawn": None, "map_w": MAP_W}
 
 
@@ -4637,6 +4698,66 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
         return False
 
 
+def _ai_avoid_aoe(eng, ai_pid, inp):
+    """AI 躲范围技能：砸地预警圈 / 岩浆喷发红圈 / 幽蓝喷火锥 / 飞来的蛋。
+
+    只接管左右移动（必要时补一次跳），不改攻击意图。返回 True 表示本帧已接管。
+    """
+    try:
+        me = eng.players[ai_pid]
+        if me["hp"] <= 0 or not me.get("on_ground"):
+            return False
+        px, py = me["x"], me["y"]
+        pref = 0          # >0 往右躲，<0 往左躲
+        found = False
+        # 砸地预警圈：往外跑
+        for m in eng.monsters:
+            if m.kind == "boss" and getattr(m, "state", "") == "slam_wind":
+                if abs(px - m.x) < 165 and abs(py - m.y) < 96:
+                    pref += 1 if px > m.x else -1
+                    found = True
+        # 岩浆喷发：还没喷的那几根，脚边有就横移
+        for er in getattr(eng, "lava_eruptions", []):
+            if er.get("done"):
+                continue
+            if abs(px - er["x"]) < ERUPT_R + 30 and abs(py - er["y"]) < 76:
+                pref += 1 if px > er["x"] else -1
+                found = True
+        # 幽蓝火焰：往"嘴"的方向退（退出锥形）
+        for br in getattr(eng, "breaths", []):
+            d = 1 if br["dir"] > 0 else -1
+            rel = (px - br["x"]) * d
+            if 0 < rel < BREATH_LEN + 26 and abs(py - br["y"]) < BREATH_H * 0.62:
+                pref += -d
+                found = True
+        # 蛋：落点附近就躲开它的水平位置
+        for e in getattr(eng, "eggs", []):
+            if e["y"] <= py + 26 and abs(e["x"] - px) < 112:
+                pref += 1 if px > e["x"] else -1
+                found = True
+        if not found:
+            return False
+        if pref == 0:
+            # 两边都危险/都安全：往远离最近威胁的一侧
+            pref = 1
+        inp["right"] = pref > 0
+        inp["left"] = pref < 0
+        inp["up"] = False
+        inp["dash"] = False
+        # 逃跑方向被墙挡住就跳一下（坑壁/台阶）
+        try:
+            d = 1 if pref > 0 else -1
+            cx = int((px + d * (PLAYER_W / 2 + 6)) // TILE)
+            cy = int((py - PLAYER_H * 0.5) // TILE)
+            if eng._solid_at(cx, cy) or eng._solid_at(cx, cy - 1):
+                inp["up"] = True
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 def make_ai_input(ai_pid, eng, other_pid, cmd="follow", lead=None):
     """AI 输入入口：在原始策略外层再加一道"深坑护栏"。
 
@@ -4757,6 +4878,12 @@ def make_ai_input(ai_pid, eng, other_pid, cmd="follow", lead=None):
             except Exception:
                 pass
             return inp
+    except Exception:
+        pass
+    # 躲范围技能：守点模式不接管（踩住机关比躲一下重要）
+    try:
+        if cmd != "guard":
+            _ai_avoid_aoe(eng, ai_pid, inp)
     except Exception:
         pass
     try:

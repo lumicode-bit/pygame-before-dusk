@@ -61,6 +61,33 @@ check("复活生命为 60%", abs(e.players[0]["hp"] - e.players[0]["maxhp"] * co
       "%.0f" % e.players[0]["hp"])
 check("阵亡计数 +1", e.deaths == 1, str(e.deaths))
 
+print("== 1.5 生命池（人类才扣命 / 团灭 Boss 回血 / 命尽失败）==")
+e = fresh()
+e.ai_pid = 1                       # 单人：AI 是盾卫
+e.players[0]["x"] = 3000.0
+e.players[1]["hp"] = 0             # 只有 AI 倒
+step(e, 1)
+check("AI 阵亡不扣命", e.lives == core.START_LIVES, str(e.lives))
+check("AI 阵亡不把人类拖回检查点", abs(e.players[0]["x"] - 3000.0) < 120,
+      "x=%.0f" % e.players[0]["x"])
+check("AI 在人类身边补位", abs(e.players[1]["x"] - e.players[0]["x"]) < 130,
+      "%.0f vs %.0f" % (e.players[1]["x"], e.players[0]["x"]))
+_lv = e.lives
+e.players[0]["hp"] = 0             # 人类也倒 -> 扣命
+step(e, 1)
+check("人类阵亡扣 1 条命", e.lives == _lv - 1, "%d -> %d" % (_lv, e.lives))
+# 命耗尽 -> 本局失败且世界冻结
+e.lives = 1
+e.players[0]["hp"] = 0
+step(e, 1)
+check("命耗尽触发失败", e.fail is True, str(e.fail))
+_t0 = e.elapsed
+step(e, 3)
+check("失败后世界冻结", abs(e.elapsed - _t0) < 1e-6,
+      "%.3f -> %.3f" % (_t0, e.elapsed))
+e.reset("x")
+check("重开后生命/失败状态复位", e.lives == core.START_LIVES and not e.fail)
+
 print("== 2. 地刺伤害 ==")
 e = fresh()
 e._checkpoints[0]["active"] = True

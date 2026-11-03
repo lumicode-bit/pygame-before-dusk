@@ -1987,13 +1987,17 @@ class App:
                             chat_text += ev.unicode
 
         # 胜负
-        if st.get("win") and not self.result_shown:
+        # 注意：这里必须用 self.last_st。handle_events 的作用域里没有 st
+        # （st 只是 scene_game 的局部变量），原来写 st.get(...) 会抛 NameError
+        # 被下面的 except 吞掉 —— 结果就是"打赢了也永远不进结算页"。
+        _st = self.last_st or {}
+        if (_st.get("win") or _st.get("fail")) and not self.result_shown:
             self.result_shown = True
             # 结算必须用这一帧的真实状态包。全局 last_state 只有客机分支会赋值，
             # 单人/房主走这里是 None -> _update_records({}) -> compute_score 恒 1200、
             # win 恒假、records 永不更新（主玩法的计分一直是坏的）
-            self.final_state = st
-            audio.sfx("win", 1.0)
+            self.final_state = _st
+            audio.sfx("win" if _st.get("win") else "death", 1.0)
             self.goto("RESULT", 1.4)
 
     def _ai_catch_up(self):
@@ -2212,6 +2216,15 @@ class App:
                 elif k == "boss_slam_up":
                     audio.sfx("hammer", 0.4)
                     self.particles.burst("dust", x, y, (220, 190, 160), count=8, power=0.8)
+                elif k == "boss_heal":
+                    # 团灭惩罚：首领吞掉了你们的失败，回一口血
+                    audio.sfx("portal", 0.55)
+                    self.particles.burst("magic", x, y, (170, 110, 240), count=18, power=1.2)
+                    self.floats.add(x, y - 18, "首领回复", (206, 168, 255), "label", bold=True)
+                elif k == "fail":
+                    audio.sfx("death", 1.0)
+                    self.post.hit_flash((120, 20, 30), 0.85, full=True)
+                    self.cam.add_trauma(0.7)
                 elif k == "boss_summon":
                     audio.sfx("portal", 0.5)
                     self.particles.burst("magic", x, y, (200, 120, 255), count=16, power=1.2)
@@ -2426,7 +2439,8 @@ class App:
                        theme.alpha_color(theme.SLATE_200, 230), align="midleft", shadow=False)
 
         # ---- 右侧统计 ----
-        stats = [("clock", self._fmt_time(st.get("elapsed", 0))),
+        stats = [("heart", "%d" % int(st.get("lives", core.START_LIVES))),
+                 ("clock", self._fmt_time(st.get("elapsed", 0))),
                  ("star", "%d" % st.get("kills", 0)),
                  ("skull", "%d" % st.get("deaths", 0))]
         bx = SCREEN_W - 72
@@ -2775,7 +2789,11 @@ class App:
         def _ry(v):
             return r.y + int(v * k)
 
-        ui.panel(s, r, "远征成功", "暮色之前，你们抵达了传送门", icon="star")
+        is_fail = bool(st.get("fail"))
+        ui.panel(s, r,
+                 "远征失败" if is_fail else "远征成功",
+                 "生命耗尽 —— 队伍倒在了暮色里" if is_fail else "暮色之前，你们抵达了传送门",
+                 icon="skull" if is_fail else "star")
 
         # 数值字段一律强制转型：联机时 st 来自网络，字段可能是字符串/None，
         # 直接 "%d" % kills 或 elapsed < 260 会抛 TypeError
@@ -2791,9 +2809,12 @@ class App:
         rank = "S" if deaths == 0 and elapsed < 260 else "A" if deaths <= 1 else \
                "B" if deaths <= 3 else "C"
         rcol = {"S": theme.GOLD_LIGHT, "A": theme.LIME, "B": theme.TEAL, "C": theme.SLATE_200}[rank]
+        if is_fail:
+            rcol = theme.DANGER
         # 评级
-        theme.text(s, rank, (r.x + 118, _ry(176)), 96, rcol, align="center", bold=True)
-        theme.text(s, "评级", (r.x + 118, _ry(240)), "small",
+        theme.text(s, "0" if is_fail else rank, (r.x + 118, _ry(176)), 96, rcol,
+                   align="center", bold=True)
+        theme.text(s, "剩余生命" if is_fail else "评级", (r.x + 118, _ry(240)), "small",
                    theme.alpha_color(theme.SLATE_300, 200), align="center")
         theme.text(s, "用时", (r.x + 250, _ry(130)), "small", theme.SLATE_300)
         theme.text(s, self._fmt_time(elapsed), (r.x + 250, _ry(152)), "title", (255, 244, 220), bold=True)
@@ -2802,7 +2823,8 @@ class App:
         theme.text(s, "阵亡", (r.x + 400, _ry(130)), "small", theme.SLATE_300)
         theme.text(s, "%d" % deaths, (r.x + 400, _ry(152)), "title", (255, 244, 220), bold=True)
         theme.text(s, "评价", (r.x + 400, _ry(196)), "small", theme.SLATE_300)
-        comment = "完美远征" if rank == "S" else "配合默契" if rank == "A" else "顺利归来" if rank == "B" else "惊险生还"
+        comment = "队伍全灭" if is_fail else (
+            "完美远征" if rank == "S" else "配合默契" if rank == "A" else "顺利归来" if rank == "B" else "惊险生还")
         theme.text(s, comment, (r.x + 400, _ry(218)), "sub", rcol, bold=True)
 
         # ---- 得分与历史记录 ----
@@ -2845,7 +2867,9 @@ class App:
         theme.text(s, "行程：" + recap, (r.centerx, _ry(364)), "tiny",
                    theme.alpha_color(theme.SLATE_300, 225), align="center", shadow=False)
         if single_mode:
-            if deaths >= 4:
+            if is_fail:
+                _line = "命都拼光了……下次，稳一点。"
+            elif deaths >= 4:
                 _line = "下次别逞强……我差点没救回来。"
             elif rst.get("blocks", 0) >= 4:
                 _line = "你挡下的那一击救了我。"

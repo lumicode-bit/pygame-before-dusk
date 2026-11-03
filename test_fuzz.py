@@ -114,6 +114,10 @@ def rnd_input():
 
 
 for i in range(12000):
+    # 这一段测的是"地形/移动/异常"，不是生命系统：随机乱按会频繁阵亡，
+    # 命耗尽会触发失败冻结，就测不到远处的推进了。这里给无限命。
+    eng.lives = 999
+    eng.fail = False
     eng.step({0: rnd_input(), 1: rnd_input()}, core.TICK_DT)
     for pid, p in eng.players.items():
         x, y = p["x"], p["y"]
@@ -203,12 +207,14 @@ boss = next((m for m in e.monsters if m.kind in ("boss", "tree")), None)
 check("Boss 存在时传送门保持封印", boss is not None and not e.portal_active)
 if boss:
     # 玩家阵亡 -> 检查点复活，Boss 血量不能被重置
+    # （团灭惩罚会让 Boss 回 8%，所以只要求"没被清空/回满"，不要求分毫不差）
     boss.hp = 20
     e.players[0]["hp"] = 0
     e.step({}, core.TICK_DT)
     e.step({}, core.TICK_DT)
     boss2 = next((m for m in e.monsters if m.kind in ("boss", "tree")), None)
-    check("复活不清空 Boss 进度", boss2 is not None and boss2.hp == 20,
+    _cap = 20 + boss.maxhp * core.BOSS_WIPE_HEAL + 0.01
+    check("复活不清空 Boss 进度", boss2 is not None and 20 <= boss2.hp <= _cap,
           "hp=%s" % (boss2.hp if boss2 else "None"))
     check("复活时清空残留火球", len(e.fireballs) == 0, str(len(e.fireballs)))
 
