@@ -2451,18 +2451,21 @@ class WorldRenderer:
                 pass
 
     def _draw_blooms(self, surf, cam_x, cam_y, t, st):
-        """树精死亡：附近地面长出草与花，逐渐焕发生机（带风摆 + 生命波纹 + 花瓣）。"""
+        """树精死亡：贴地长出草与花，从中心向外波浪式扩散。
+
+        地面高度由引擎按列采样后随包发来（prof），渲染端不再自己猜 y ——
+        以前把 y 写死成树精脚底、水平撒 ±182px，祭坛外地面更低，草就长在半空。
+        """
         for b in st.get("blooms", []):
             try:
                 bx = float(b["x"]) - cam_x
                 by = float(b["y"]) - cam_y
                 age = float(b["t"])
                 prog = max(0.0, min(1.0, age / 1.6))
-                rnd = random.Random(int(b.get("seed", 7)))
-                maxr = 182                     # 收窄，别长到台子外面的空气里
+                seed = int(b.get("seed", 7))
                 # 地面绿光（生命感）
-                theme.glow_circle(surf, (int(bx), int(by) - 6), int(170 * prog),
-                                  (76, 196, 96), 0.22 * prog, 4)
+                theme.glow_circle(surf, (int(bx), int(by) - 6), int(150 * prog),
+                                  (76, 196, 96), 0.20 * prog, 4)
                 # 初段：一圈扩散的绿色生命波纹
                 if age < 0.9:
                     rr = int(40 + age * 220)
@@ -2470,39 +2473,74 @@ class WorldRenderer:
                     pygame.draw.ellipse(surf, theme.alpha_color((150, 240, 150), a),
                                         (int(bx - rr), int(by - rr * 0.28),
                                          rr * 2, int(rr * 0.56)), 2)
-                # 草簇
-                n = 64
-                for i in range(n):
-                    dd = rnd.uniform(-maxr, maxr)
-                    th = rnd.uniform(0.5, 0.92)
-                    if prog < th:
+
+                prof = b.get("prof") or []
+                # 草皮色带：沿地面轮廓铺一条渐变绿，比"几根草"更能读出"这片地活了"
+                if prof and age > 0.35:
+                    band = []
+                    for pt in prof:
+                        try:
+                            band.append((int(float(pt[0]) - cam_x), int(float(pt[1]) - cam_y)))
+                        except Exception:
+                            continue
+                    if len(band) >= 2:
+                        a = int(70 * min(1.0, (age - 0.35) / 1.2))
+                        for idx in range(len(band) - 1):
+                            x1, y1 = band[idx]
+                            x2, y2 = band[idx + 1]
+                            pygame.draw.line(surf, theme.alpha_color((72, 168, 82), a),
+                                             (x1, y1 - 1), (x2, y2 - 1), 3)
+                for i, pt in enumerate(prof):
+                    try:
+                        wx, wy = float(pt[0]), float(pt[1])
+                    except Exception:
                         continue
-                    gx = int(bx + dd)
-                    gy = int(by)
-                    gh = int((prog - th) / max(0.01, 1.0 - th) *
-                             rnd.uniform(12, 28)) + 2
-                    sway = math.sin(t * 2.0 + i * 0.7) * 2
-                    base_col = (44, 118, 52) if rnd.random() < 0.5 else (62, 148, 64)
-                    tip_col = (128, 206, 94)
-                    for h in range(gh):
-                        xx = int(gx + sway * h / max(1, gh))
-                        c = base_col if h < gh * 0.6 else tip_col
-                        pygame.draw.line(surf, c, (xx, gy - h), (xx, gy - h - 1), 1)
-                    # 分叉第二片草叶，增加密度
-                    if rnd.random() < 0.55 and gh > 6:
-                        sx2 = gx + (2 if rnd.random() < 0.5 else -2)
-                        for h in range(int(gh * 0.7)):
-                            xx = int(sx2 + sway * h / max(1, gh))
-                            pygame.draw.line(surf, base_col, (xx, gy - h), (xx, gy - h - 1), 1)
-                    # 花
-                    if rnd.random() < 0.34 and gh > 9:
-                        fc = rnd.choice([(250, 230, 120), (250, 160, 190),
-                                         (206, 182, 250), (255, 255, 255),
-                                         (255, 150, 120)])
-                        fx = int(gx + sway)
-                        fy = gy - gh
-                        pygame.draw.circle(surf, fc, (fx, fy), 2)
-                        pygame.draw.circle(surf, (250, 220, 90), (fx, fy), 1)
+                    dist = abs(wx - float(b["x"]))
+                    # 波浪扩散：离树精越远的列越晚长出来
+                    local = (age - dist / 260.0) / 0.95
+                    if local <= 0.0:
+                        continue
+                    local = min(1.0, local)
+                    gx = int(wx) - cam_x
+                    gy = int(wy) - cam_y
+                    n_tuft = 2 + (i * 7 + seed) % 2
+                    for k in range(n_tuft):
+                        rr = random.Random(seed * 131 + i * 17 + k)
+                        off = rr.uniform(-4.5, 4.5)
+                        # 越远越矮（像被踩过），ease-out 先快后慢
+                        hgt = rr.uniform(14, 34) * (1.0 - min(0.30, dist / 700.0))
+                        gh = int(hgt * (1.0 - (1.0 - local) ** 2)) + 1
+                        if gh < 2:
+                            continue
+                        sway = math.sin(t * 2.0 + i * 0.7 + k) * 2
+                        base_col = (44, 118, 52) if rr.random() < 0.5 else (62, 148, 64)
+                        tip_col = (128, 206, 94)
+                        for h in range(gh):
+                            xx = int(gx + off + sway * h / max(1, gh))
+                            c = base_col if h < gh * 0.6 else tip_col
+                            pygame.draw.line(surf, c, (xx, gy - h), (xx, gy - h - 1), 1)
+                        # 花：只在离树精 40px 之外开，别全挤在脚下
+                        if dist > 40 and rr.random() < 0.30 and gh > 8:
+                            fc = rr.choice([(250, 230, 120), (250, 160, 190),
+                                            (206, 182, 250), (255, 255, 255),
+                                            (255, 150, 120)])
+                            fx = int(gx + off + sway)
+                            fy = gy - gh
+                            pygame.draw.circle(surf, fc, (fx, fy), 2)
+                            pygame.draw.circle(surf, (250, 220, 90), (fx, fy), 1)
+
+                # 萤火虫：贴地升起、缓慢飘动的暖光点
+                if age > 0.8:
+                    for i in range(10):
+                        ph = (age * 0.22 + i * 0.13) % 1.0
+                        fx = bx + math.sin(age * 0.9 + i * 1.7) * (60 + (i % 5) * 26)
+                        fy = by - 8 - ph * (46 + (i % 3) * 18)
+                        a = int(190 * min(1.0, (age - 0.8) / 1.2) * (1.0 - ph * 0.7))
+                        if a > 8:
+                            theme.glow_circle(surf, (int(fx), int(fy)), 5,
+                                              (250, 226, 140), a / 255.0 * 0.55, 2)
+                            pygame.draw.circle(surf, theme.alpha_color((255, 246, 190), a),
+                                               (int(fx), int(fy)), 1)
                 # 飘起的花瓣 / 叶子
                 for i in range(6):
                     ph = (age * 0.5 + i * 0.37) % 1.0

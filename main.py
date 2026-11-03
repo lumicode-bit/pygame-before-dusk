@@ -563,6 +563,10 @@ class App:
         self.result_shown = False
         self.hp_ghost = {0: 1.0, 1: 1.0}
         self.hp_smooth = {0: 1.0, 1: 1.0}
+        self.heart_break = []      # 队伍生命碎心动画：[颗号, 已播放时长]
+        self._lives_prev = None
+        self.bell_t = None         # 丧钟演出计时（None = 没在演）
+        self.bell_ring_n = 0       # 已经敲了几响
         self.msg_text = ""
         self.msg_t = 0.0
         self.chest_hint = 0.0
@@ -652,6 +656,10 @@ class App:
             self.particles.items.clear()
             self.floats.items.clear()
             self.result_shown = False
+            self.bell_t = None
+            self.bell_ring_n = 0
+            self.heart_break = []
+            self._lives_prev = None
             self.run_started = time.time()
             self.msg_text = ""
             self.msg_t = 0.0
@@ -1842,6 +1850,19 @@ class App:
                 self.particles.burst("ember", ex, ey, (196, 240, 140), count=1, power=0.35)
 
         self.draw_hud(st, focus_pid)
+
+        # 丧钟演出：世界已定格，钟盖在所有东西之上（HUD 被暗场压住）
+        if self.bell_t is not None:
+            self.bell_t += self.dt
+            for ev in events:
+                if ev.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                    self.bell_t = 99.0          # 任意键跳过
+                    break
+            self._draw_bell(s)
+            if self.bell_t >= 3.5:
+                self.bell_t = None
+                self.goto("RESULT", 0.55)
+            return
         if not single_mode and (st.get("lobby") or st.get("paused")):
             if st.get("paused"):
                 self._draw_net_overlay(s, "房主已暂停", "等待房主继续…")
@@ -1997,8 +2018,118 @@ class App:
             # 单人/房主走这里是 None -> _update_records({}) -> compute_score 恒 1200、
             # win 恒假、records 永不更新（主玩法的计分一直是坏的）
             self.final_state = _st
-            audio.sfx("win" if _st.get("win") else "death", 1.0)
-            self.goto("RESULT", 1.4)
+            if _st.get("fail"):
+                # 失败不立刻结算：先演丧钟（3 响），演完再进结算页
+                self.bell_t = 0.0
+                self.bell_ring_n = 0
+            else:
+                audio.sfx("win", 1.0)
+                self.goto("RESULT", 1.4)
+
+
+    def _draw_bell(self, s):
+        """失败丧钟：暗场 -> 巨钟升起 -> 3 响（每响一震 + 一道裂纹 + 落灰）。
+
+        纯屏幕空间绘制，不占世界坐标；背景是死亡那一刻的定格画面。
+        """
+        t = min(3.5, float(self.bell_t or 0.0))
+        RINGS = (1.15, 1.95, 2.75)
+        n = sum(1 for r in RINGS if t >= r)
+        while self.bell_ring_n < n:
+            self.bell_ring_n += 1
+            audio.sfx("bell", 0.95)
+            self.cam.add_trauma(0.55)
+
+        # 暗场：越往后越黑
+        alpha = int(min(236, 96 + t * 30 + n * 20))
+        veil = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        veil.fill((8, 6, 10, alpha))
+        s.blit(veil, (0, 0))
+
+        # 钟升起（0.35s -> 1.15s，ease-out）
+        k = max(0.0, min(1.0, (t - 0.35) / 0.80))
+        k = 1.0 - (1.0 - k) ** 2
+        top = int((SCREEN_H + 160) + k * (54 - (SCREEN_H + 160)))
+
+        # 摆动：每响一次晃一下，指数衰减
+        swing = 0.0
+        for r in RINGS:
+            if t > r:
+                dt_ = t - r
+                swing += math.sin(dt_ * 8.0) * 7.0 * math.exp(-dt_ * 2.4)
+        cx = SCREEN_W // 2 + 40 + int(swing)
+
+        bw, bh = 272, 340
+        lip_y = top + bh
+        # 钟体：肩窄口宽（带外扩的钟唇），暖铜色分三层
+        def _bell_pts(inset):
+            return [(cx - bw // 2 + inset, lip_y - 10),
+                    (cx - bw // 2 + 10 + inset, lip_y - 52),
+                    (cx - bw // 2 + 46 + inset, top + 56),
+                    (cx - 34 + inset, top + 2),
+                    (cx + 34 - inset, top + 2),
+                    (cx + bw // 2 - 46 - inset, top + 56),
+                    (cx + bw // 2 - 10 - inset, lip_y - 52),
+                    (cx + bw // 2 - inset, lip_y - 10)]
+        pygame.draw.polygon(s, (52, 37, 26), _bell_pts(0))
+        # 左亮右暗：用两条竖向色带做圆柱感
+        pygame.draw.polygon(s, (74, 53, 36),
+                            [(cx - 96, top + 30), (cx - 40, top + 30),
+                             (cx - 30, lip_y - 12), (cx - 84, lip_y - 12)])
+        pygame.draw.polygon(s, (34, 24, 19),
+                            [(cx + 40, top + 30), (cx + 96, top + 30),
+                             (cx + 84, lip_y - 12), (cx + 30, lip_y - 12)])
+        pygame.draw.polygon(s, (104, 76, 48), _bell_pts(0), 3)
+        # 钟箍：三道横向箍线，让它一眼是"钟"不是"圆锥"
+        for kk, frac in enumerate((0.22, 0.46, 0.72)):
+            yy = int(top + bh * frac)
+            half = int(bw * (0.30 + 0.20 * frac))
+            pygame.draw.line(s, (98, 72, 46), (cx - half, yy), (cx + half, yy), 3)
+            pygame.draw.line(s, (28, 20, 16), (cx - half, yy + 3), (cx + half, yy + 3), 1)
+        # 钟唇（外扩的厚口）+ 口内阴影
+        pygame.draw.polygon(s, (86, 62, 40),
+                            [(cx - bw // 2 - 10, lip_y - 12), (cx + bw // 2 + 10, lip_y - 12),
+                             (cx + bw // 2 - 6, lip_y + 10), (cx - bw // 2 + 6, lip_y + 10)])
+        pygame.draw.ellipse(s, (30, 21, 17),
+                            (cx - bw // 2 + 12, lip_y - 6, bw - 24, 22))
+        pygame.draw.ellipse(s, (118, 86, 54),
+                            (cx - bw // 2 - 10, lip_y - 14, bw + 20, 26), 3)
+        # 钟舌：从口里垂下来的一颗
+        pygame.draw.line(s, (70, 50, 32), (cx, lip_y - 60), (cx + int(swing * 1.6), lip_y + 6), 5)
+        pygame.draw.circle(s, (58, 40, 27), (cx + int(swing * 1.6), lip_y + 8), 11)
+        pygame.draw.circle(s, (96, 70, 44), (cx + int(swing * 1.6) - 3, lip_y + 4), 3)
+        # 吊环
+        pygame.draw.arc(s, (104, 76, 48), (cx - 30, top - 50, 60, 66), 0.35, 2.8, 6)
+
+        # 裂纹：每响一道，从口沿往上裂
+        rnd = random.Random(20261103)
+        for i in range(n):
+            x0 = cx + rnd.randint(-76, 76)
+            y0 = lip_y - 12
+            px_, py_ = x0, y0
+            for seg in range(5):
+                nx = px_ + rnd.randint(-11, 11)
+                ny = py_ - rnd.randint(20, 36)
+                pygame.draw.line(s, (16, 11, 9), (px_, py_), (nx, ny), 2)
+                pygame.draw.line(s, (126, 94, 60), (px_ + 2, py_), (nx + 2, ny), 1)
+                px_, py_ = nx, ny
+
+        # 落灰：每响一次，从口沿往下飘
+        for i, r in enumerate(RINGS):
+            if t <= r:
+                continue
+            dt_ = t - r
+            prnd = random.Random(9001 + i * 37)
+            for j in range(16):
+                fx = cx + prnd.randint(-120, 120)
+                fy = lip_y + int(dt_ * prnd.uniform(70, 150)) + prnd.randint(0, 30)
+                a = int(200 * max(0.0, 1.0 - dt_ / 1.6))
+                if a > 6 and fy < SCREEN_H:
+                    pygame.draw.circle(s, theme.alpha_color((150, 132, 110), a),
+                                       (fx, fy), prnd.randint(1, 2))
+
+        # 四周暗角（压住情绪）
+        ui.dim(s, int(70 + 40 * (t / 3.5)), (4, 3, 6))
 
     def _ai_catch_up(self):
         """把当前 AI 托管角色同步给引擎（引擎负责实际的"归队"兜底）。"""
@@ -2398,6 +2529,23 @@ class App:
             theme.text(s, "夜幕将至 %ds" % int(night_in), (bx + bw + 52, by + 3), "tiny",
                        (255, 170, 120) if blink else theme.SLATE_300, align="left", shadow=False)
 
+        # ---- 队伍生命：变化时触发碎心动画（AI 阵亡不扣命，所以不会掉心）----
+        _lv_now = int(st.get("lives", core.START_LIVES))
+        if self._lives_prev is None:
+            self._lives_prev = _lv_now
+        elif _lv_now < self._lives_prev:
+            for _k in range(_lv_now, self._lives_prev):
+                self.heart_break.append([_k, 0.0])
+            self._lives_prev = _lv_now
+        elif _lv_now > self._lives_prev:
+            self._lives_prev = _lv_now
+        _hb = []
+        for _bi, _bt in self.heart_break:
+            _bt += self.dt
+            if _bt < 0.6:
+                _hb.append([_bi, _bt])
+        self.heart_break = _hb
+
         # ---- 玩家卡片 ----
         for idx, pid in enumerate((0, 1)):
             p = st.get("players", {}).get(pid)
@@ -2405,7 +2553,7 @@ class App:
                 continue
             x = 16 + idx * 292
             y = 12
-            r = pygame.Rect(x, y, 274, 60)
+            r = pygame.Rect(x, y, 274, 74)
             is_focus = (pid == focus_pid)
             theme.rounded_panel(s, r, (16, 20, 34), theme.alpha_color(
                 ROLE_COLOR[pid], 150 if is_focus else 60), 12, alpha=225, shadow=False)
@@ -2437,10 +2585,42 @@ class App:
                                ghost=self.hp_ghost[pid], border=(70, 62, 70))
             theme.text(s, "%d/%d" % (hp, mxh), (bar.right + 6, bar.centery), "tiny",
                        theme.alpha_color(theme.SLATE_200, 230), align="midleft", shadow=False)
+            # ---- 队伍生命：血条下方一排红心（两条血条都画，数值同源）----
+            # 单人模式下 AI 阵亡不扣命，所以这里只跟 st["lives"] 走，天然不会因 AI 掉心。
+            for _i in range(max(1, min(8, int(st.get("max_lives", core.START_LIVES))))):
+                _hx = bar.x + _i * 14
+                _hy = bar.bottom + 5
+                _full = _i < int(st.get("lives", core.START_LIVES))
+                # 碎裂动画：刚失去的那颗，0.45 秒内炸成三块
+                _brk = None
+                for _bi, _bt in self.heart_break:
+                    if _bi == _i and _bt < 0.45:
+                        _brk = _bt
+                        break
+                if _brk is not None:
+                    _k = _brk / 0.45
+                    for _a in (-1, 0, 1):
+                        _ox = int(_a * 7 * _k)
+                        _oy = int(-6 * _k + 10 * _k * _k)
+                        _sz = max(1, int(2 * (1.0 - _k)))
+                        pygame.draw.circle(s, theme.alpha_color((226, 66, 82), int(220 * (1 - _k))),
+                                           (_hx + 5 + _ox, _hy + 5 + _oy), _sz)
+                    continue
+                if _full:
+                    pygame.draw.circle(s, (226, 62, 80), (_hx + 3, _hy + 4), 3)
+                    pygame.draw.circle(s, (226, 62, 80), (_hx + 8, _hy + 4), 3)
+                    pygame.draw.polygon(s, (226, 62, 80),
+                                        [(_hx, _hy + 5), (_hx + 11, _hy + 5), (_hx + 5, _hy + 11)])
+                    pygame.draw.circle(s, (255, 156, 166), (_hx + 3, _hy + 3), 1)
+                else:
+                    pygame.draw.circle(s, (52, 44, 50), (_hx + 3, _hy + 4), 3)
+                    pygame.draw.circle(s, (52, 44, 50), (_hx + 8, _hy + 4), 3)
+                    pygame.draw.polygon(s, (52, 44, 50),
+                                        [(_hx, _hy + 5), (_hx + 11, _hy + 5), (_hx + 5, _hy + 11)])
+                    pygame.draw.line(s, (34, 28, 34), (_hx + 3, _hy + 4), (_hx + 7, _hy + 8), 1)
 
         # ---- 右侧统计 ----
-        stats = [("heart", "%d" % int(st.get("lives", core.START_LIVES))),
-                 ("clock", self._fmt_time(st.get("elapsed", 0))),
+        stats = [("clock", self._fmt_time(st.get("elapsed", 0))),
                  ("star", "%d" % st.get("kills", 0)),
                  ("skull", "%d" % st.get("deaths", 0))]
         bx = SCREEN_W - 72

@@ -422,6 +422,23 @@ def _sfx_fall():
     return _sweep(700, 90, d, "tri") * _env(int(d * SAMPLE_RATE), 0.01, 0.1, 0.5, 0.4, 0.12) * 0.7
 
 
+def _sfx_bell():
+    """丧钟：低频基音 + 钟体非谐分音（2.76 / 5.4 / 8.93 倍），长衰减 + 混响。"""
+    d = 3.2
+    out = np.zeros(int(d * SAMPLE_RATE), dtype=np.float32)
+    base = 98.0
+    for mult, amp, dur in ((1.0, 0.62, 3.0), (2.76, 0.30, 2.0),
+                           (5.40, 0.16, 1.2), (8.93, 0.09, 0.7)):
+        sig = _osc(base * mult, dur, "sine") * _env(int(dur * SAMPLE_RATE),
+                                                   0.004, 0.08, 0.30, 0.5, 0.0)
+        _place(out, sig, 0.0, amp)
+    # 撞击瞬间的高频"叮"
+    strike = _osc(1180.0, 0.09, "sine") * _env(int(0.09 * SAMPLE_RATE),
+                                               0.001, 0.02, 0.02, 0.03, 0.0)
+    _place(out, strike, 0.0, 0.28)
+    return _reverb(out, 0.5, 0.7)
+
+
 def _build_sfx():
     """构建全部音效（约 0.3~0.6 秒）。"""
     table = {
@@ -432,7 +449,7 @@ def _build_sfx():
         "win": _sfx_win, "death": _sfx_death, "spike": _sfx_spike,
         "hammer": _sfx_hammer, "ui_hover": _sfx_ui_hover, "ui_click": _sfx_ui_click,
         "checkpoint": _sfx_checkpoint, "chest": _sfx_chest,
-        "lava": _sfx_lava, "fall": _sfx_fall,
+        "lava": _sfx_lava, "fall": _sfx_fall, "bell": _sfx_bell,
     }
     for name, fn in table.items():
         try:

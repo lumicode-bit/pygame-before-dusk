@@ -3264,9 +3264,21 @@ class GameEngine:
             # 树精倒下：附近地面焕发生机（持续生长，渲染端绘制）
             _sk = "tree" if m.tree else m.kind     # 精灵/表现用的种类
             if m.tree and not silent:
+                # 地面轮廓：按列采样真实地面，只保留和树精同层的列。
+                # 以前渲染端把 y 写死成树精脚底、水平撒 ±182px，而祭坛外地面更低
+                # -> 草直接长在半空。这里把"能长的地面"算好交给渲染端。
+                prof = []
+                try:
+                    for gx in range(int(m.x) - 190, int(m.x) + 191, 10):
+                        gy = self._ground_below(gx, m.y - 10)
+                        if abs(gy - m.y) <= 64:
+                            prof.append((gx, int(gy)))
+                except Exception:
+                    prof = []
                 self.blooms.append({
                     "x": float(m.x), "y": float(m.y),
                     "t": 0.0, "max": 9.0, "seed": int(m.mid) * 7 + 13,
+                    "prof": prof,
                 })
                 self.events.append(("bloom", int(m.x), int(m.y)))
                 self.eggs = []                # 树精死了，空中的蛋/火焰一并消失
@@ -3485,7 +3497,8 @@ class GameEngine:
                              "max": br["max"]} for br in self.breaths],
                 "blooms": [{"x": round(b["x"], 1), "y": round(b["y"], 1),
                            "t": round(b["t"], 2), "max": b["max"],
-                           "seed": b["seed"]} for b in self.blooms],
+                           "seed": b["seed"], "prof": b.get("prof", [])}
+                          for b in self.blooms],
                 "cracks": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
                            "t": round(c["t"], 2), "max": c["max"],
                            "seed": c["seed"], "power": round(c["power"], 2)}
