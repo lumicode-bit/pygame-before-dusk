@@ -234,6 +234,36 @@ if tree:
     e._respawn_all()
     check("复活清除灼烧", e.players[0].get("burn", 0) == 0)
 
+print("== 9.4 AI 对 Boss 保持距离（不贴脸挨打）==")
+e = fresh()
+e.monsters.clear()
+e.wave = 3
+e.wave1_spawned = True
+e.wave2_spawned = True
+for pid in (0, 1):
+    e.players[pid]["x"] = (core.ALTAR_LEFT + 2) * T
+    e.players[pid]["y"] = 15 * T
+e._spawn_boss()
+for _r in e.rifts:
+    _r["t"] = _r["delay"]
+step(e, 1)
+for _m in e.monsters:
+    if _m.state == "spawn":
+        _m.state_t = 0.0
+step(e, 1)
+_tree = next((m for m in e.monsters if m.kind == "boss" and m.tree), None)
+if _tree:
+    e.ai_pid = 1
+    e.players[1]["hp"] = e.players[1]["maxhp"]
+    e.players[1]["x"] = _tree.x - 8      # 故意贴到 Boss 身上
+    e.players[1]["y"] = 15 * T
+    for _ in range(60):
+        e.step({0: {}, 1: core.make_ai_input(1, e, 0)}, core.TICK_DT)
+        e.events.clear()
+    _d = abs(e.players[1]["x"] - _tree.x)
+    check("AI 被贴身后会退到安全距离", _d > 46, "距离=%.0f" % _d)
+    check("AI 仍留在剑能打到的范围", _d < 120, "距离=%.0f" % _d)
+
 print("== 9.5 熔岩术士与精英 ==")
 e = fresh()
 e.players[0]["x"] = 50 * T

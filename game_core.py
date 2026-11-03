@@ -4374,6 +4374,18 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             # _nav_follow 会在左右两个节点之间来回判，盾卫原地高频抖动、
             # 既不挥剑也不跟随（实测卡在 109 列 10 秒）。
             _too_close = best is not None and abs(best.x - px) <= 26 and abs(best.y - py) < 40
+            # Boss 单独处理：不要一头扎到它身上（接触伤害 14/次会把盾卫磨死），
+            # 停在"剑够得着、但身体不重叠"的窗口里（剑程 56 + 自身半宽 13 ≈ 69）。
+            if best is not None and best.kind == "boss" and bd < 460:
+                if abs(best.x - px) > 200:
+                    # 远距离先走导航（绕台阶/沟），近了再收进"够得着但不在身上"的窗口
+                    if not _nav_follow(eng, ai_pid, inp, best.x, best.y):
+                        advance(best.x, best.y)
+                else:
+                    _ai_boss_standoff(eng, ai_pid, inp, best, 64, 16)
+                if abs(best.x - px) <= 74 and abs(best.y - py) < 52:
+                    inp["sword"] = True
+                return inp
             if best is not None and bd < SWORD_RANGE * 1.3:
                 if bd < 70 and abs(best.x - px) < 90:
                     inp["sword"] = True
@@ -4495,6 +4507,12 @@ def _make_ai_input_raw(ai_pid, eng, other_pid, lead=None):
             inp["shoot"] = True
             inp["mx"] = best.x
             inp["my"] = best.y - (10 if best.kind == "fly" else (20 if best.kind == "caster" else 16))
+            if best.kind == "boss" and bd < 380:
+                # 对 Boss 保持 200~280 的安全距离：喷火 176、爆炸 84，
+                # 站在 120 那个"普通怪后退线"上会被喷火直接扫到。
+                # 更远（380+）就交给下面的通用逻辑去靠近/绕路。
+                _ai_boss_standoff(eng, ai_pid, inp, best, 240, 46)
+                return inp
             # 移动方向：近了后退、远了逼近。但后退方向脚下没地板就不走 ——
             # 之前弓箭手会一边退一边射，直接退下悬崖摔死（两人共用一条命）。
             if bd < 120:
@@ -4693,6 +4711,45 @@ def _nav_follow(eng, ai_pid, inp, tx, ty):
                 else:
                     inp["right"] = near[0] > me["x"] + 10
                     inp["left"] = near[0] < me["x"] - 10
+        return True
+    except Exception:
+        return False
+
+
+def _ai_boss_standoff(eng, ai_pid, inp, boss, want, tol=26):
+    """对 Boss 走位：太近后退、太远靠近、在 [want-tol, want+tol] 站住。
+
+    意义：Boss 的接触伤害很高（树精 14/次），AI 一头扎进它身上会被磨死；
+    但站太远又打不到。这个窗口就是"够得着、又不在它身上"。
+    后退方向没有地板 / 是岩浆时原地站住（宁可挨一下也不掉坑）。
+    """
+    try:
+        me = eng.players[ai_pid]
+        px, py = me["x"], me["y"]
+        dx = px - boss.x
+        ad = abs(dx)
+        if ad < want - tol:
+            d = 1 if dx > 0 else -1          # 远离
+        elif ad > want + tol:
+            d = -1 if dx > 0 else 1          # 靠近
+        else:
+            inp["left"] = inp["right"] = False
+            return True
+        ok = True
+        try:
+            tx = px + d * 34
+            c = int(tx // TILE)
+            fr = int(py // TILE)
+            ok = any(eng._solid_at(c, r) for r in range(fr, fr + 3))
+            if LAVA_LEFT_PX - 16 <= tx <= LAVA_RIGHT_PX + 16:
+                ok = False
+        except Exception:
+            ok = True
+        if not ok:
+            inp["left"] = inp["right"] = False
+            return True
+        inp["right"] = d > 0
+        inp["left"] = d < 0
         return True
     except Exception:
         return False
