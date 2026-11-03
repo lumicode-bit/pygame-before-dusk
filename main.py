@@ -2043,8 +2043,11 @@ class App:
         ox, oy = sw // 2, 52
 
         # 轮廓控制点：(t, 半宽)。t=0 钟顶 -> t=1 钟唇
-        CP = [(0.00, 64), (0.08, 68), (0.20, 76), (0.36, 86),
-              (0.54, 98), (0.72, 112), (0.88, 126), (1.00, 138)]
+        # 斜率必须"先陡后缓再陡"：肩部猛鼓 -> 腰身近乎垂直 -> 钟唇外撇。
+        # 之前是单调平滑外扩，所以怎么看都像喇叭。
+        CP = [(0.00, 58), (0.05, 74), (0.12, 86), (0.24, 94),
+              (0.40, 99), (0.58, 103), (0.74, 110), (0.86, 119),
+              (0.94, 130), (1.00, 137)]
 
         def half_at(t):
             t = max(0.0, min(1.0, t))
@@ -2084,6 +2087,14 @@ class App:
                 pygame.draw.line(surf, (214, 176, 116, a),
                                  (ox + hx, oy + y), (ox + hx + 2, oy + y))
 
+        # 肩线：钟顶与钟身交界，压一道暗线 + 亮边，把"肩"读出来
+        for dy, col in ((-3, (34, 22, 14)), (-2, (34, 22, 14)),
+                        (-1, (128, 96, 58)), (0, (150, 112, 70))):
+            y = int(bh * 0.115) + dy
+            if 0 <= y < bh:
+                hw = half_at(y / float(bh - 1)) + 1
+                pygame.draw.rect(surf, col, (ox - int(hw), oy + y, int(hw) * 2, 1))
+
         # 三道钟箍：跟着轮廓走，上沿亮、下沿暗
         for frac in (0.14, 0.40, 0.66):
             y0 = int(bh * frac)
@@ -2109,6 +2120,14 @@ class App:
         pygame.draw.polygon(surf, (44, 31, 19),
                             [(ox - hw_lip - 12, lip_y - 16), (ox - hw_lip + 20, lip_y - 16),
                              (ox - hw_lip + 26, lip_y + 10), (ox - hw_lip - 6, lip_y + 10)])
+        # 音弓：钟唇上方那一圈加厚（钟被敲响的地方），比腰身更宽、更沉
+        for dy in range(-26, -6):
+            y = lip_y + dy
+            if not (0 <= y - oy < bh):
+                continue
+            hw = half_at((y - oy) / float(bh - 1)) + 5 + int((-26 - dy) * 0.35)
+            band = (86, 62, 38) if dy < -16 else (68, 48, 30)
+            pygame.draw.rect(surf, band, (ox - int(hw), y, int(hw) * 2, 1))
         pygame.draw.ellipse(surf, (18, 12, 10),
                             (ox - hw_lip + 8, lip_y - 6, int(hw_lip * 2) - 16, 28))
         pygame.draw.ellipse(surf, (116, 88, 56),
