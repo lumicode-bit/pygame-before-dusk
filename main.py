@@ -2052,6 +2052,57 @@ class App:
         veil.fill((8, 6, 10, alpha))
         s.blit(veil, (0, 0))
 
+        # ---- 血月：天上挂一轮红月，钟每响一次，月面往下淌血 ----
+        _mk = max(0.0, min(1.0, (t - 0.20) / 0.95))
+        if _mk > 0.01:
+            _mke = 1.0 - (1.0 - _mk) ** 2
+            mcx, mcy, mr = int(SCREEN_W * 0.335), int(118), 82
+            # 光晕：越敲越浓
+            for _rad, _aa in ((mr * 2.2, 8), (mr * 1.65, 14), (mr * 1.28, 22)):
+                theme.glow_circle(s, (mcx, mcy), int(_rad * _mke),
+                                  (186, 26, 32), (_aa + n * 5) / 255.0 * _mke, 7)
+            # 月体（偏暗的血红，中心略亮）
+            pygame.draw.circle(s, (150, 26, 30), (mcx, mcy), int(mr * _mke))
+            pygame.draw.circle(s, (186, 40, 38), (mcx, mcy), int(mr * 0.86 * _mke))
+            pygame.draw.circle(s, (206, 62, 48), (mcx - 16, mcy - 18), int(mr * 0.52 * _mke))
+            # 暗边：把月亮从背景里"抠"出来
+            pygame.draw.circle(s, theme.alpha_color((70, 8, 12), int(220 * _mke)),
+                               (mcx, mcy), int(mr * _mke), max(1, int(3 * _mke)))
+            # 月面暗斑（环形山的影子）
+            crnd = random.Random(777)
+            for _c in range(6):
+                _cr = crnd.randint(7, 18)
+                _cx2 = mcx + crnd.randint(-mr + 24, mr - 24)
+                _cy2 = mcy + crnd.randint(-mr + 24, mr - 24)
+                pygame.draw.circle(s, theme.alpha_color((112, 20, 24), int(140 * _mke)),
+                                   (_cx2, _cy2), _cr)
+            # 滴血：基础 3 条，每响一次 +3 条
+            _dn = 3 + n * 3
+            for i in range(_dn):
+                drnd = random.Random(500 + i * 31)
+                off = drnd.randint(-int(mr * 0.66), int(mr * 0.66))
+                dx = mcx + off
+                # 从月面下缘出发（圆方程求 y）
+                dstart = mcy + int(math.sqrt(max(0, mr * mr - off * off))) - 3
+                # 月面上的血痕：从下缘往上流一小段（固定，不闪）
+                pygame.draw.line(s, theme.alpha_color((132, 14, 20), int(200 * _mke)),
+                                 (dx, dstart - drnd.randint(10, 34)), (dx, dstart), 2)
+                # 下坠的血滴：循环下落
+                phase = (t * 0.62 + drnd.random()) % 1.0
+                fall = phase * 340.0
+                hy = dstart + fall
+                tail = 8 + drnd.randint(0, 12)
+                fade = 1.0 - max(0.0, (hy - dstart - 150)) / 190.0
+                if fade > 0.05 and hy < SCREEN_H:
+                    a = int(215 * _mke * fade)
+                    # 尾迹
+                    pygame.draw.line(s, theme.alpha_color((150, 16, 22), int(a * 0.75)),
+                                     (dx, int(hy) - tail), (dx, int(hy)), 2)
+                    # 血滴头部（带一点高光）
+                    pygame.draw.circle(s, theme.alpha_color((208, 30, 38), a), (dx, int(hy)), 3)
+                    pygame.draw.circle(s, theme.alpha_color((246, 120, 110), int(a * 0.7)),
+                                       (dx - 1, int(hy) - 1), 1)
+
         # 钟升起（0.35s -> 1.15s，ease-out）
         k = max(0.0, min(1.0, (t - 0.35) / 0.80))
         k = 1.0 - (1.0 - k) ** 2
