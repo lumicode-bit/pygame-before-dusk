@@ -2153,7 +2153,7 @@ class App:
         n = sum(1 for r in RINGS if t >= r)
         while self.bell_ring_n < n:
             self.bell_ring_n += 1
-            audio.sfx("bell", 0.95)
+            audio.sfx("bell", 0.82)
             self.cam.add_trauma(0.55)
 
         # 暗场：越往后越黑

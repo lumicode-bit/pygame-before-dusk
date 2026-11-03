@@ -423,20 +423,51 @@ def _sfx_fall():
 
 
 def _sfx_bell():
-    """丧钟：低频基音 + 钟体非谐分音（2.76 / 5.4 / 8.93 倍），长衰减 + 混响。"""
-    d = 3.2
-    out = np.zeros(int(d * SAMPLE_RATE), dtype=np.float32)
-    base = 98.0
-    for mult, amp, dur in ((1.0, 0.62, 3.0), (2.76, 0.30, 2.0),
-                           (5.40, 0.16, 1.2), (8.93, 0.09, 0.7)):
-        sig = _osc(base * mult, dur, "sine") * _env(int(dur * SAMPLE_RATE),
-                                                   0.004, 0.08, 0.30, 0.5, 0.0)
-        _place(out, sig, 0.0, amp)
-    # 撞击瞬间的高频"叮"
-    strike = _osc(1180.0, 0.09, "sine") * _env(int(0.09 * SAMPLE_RATE),
-                                               0.001, 0.02, 0.02, 0.03, 0.0)
-    _place(out, strike, 0.0, 0.28)
-    return _reverb(out, 0.5, 0.7)
+    """丧钟：撞击噪声 + 非谐分音列（含小三度 tierce）+ 分音拍频 + 长尾。
+
+    之前是 3 个正弦 + 快速 ADSR，听起来像敲木头。钟声的特征是：
+      1) 起音是一记宽带撞击（clapper 打在钟唇上），不是纯音；
+      2) 分音是**非谐**的：hum 0.5 / prime 1.0 / tierce 1.19 / quint 1.5 /
+         nominal 2.0 …… 其中 1.19 的小三度分音是"钟味"的来源；
+      3) 分音之间轻微失谐 -> 缓慢拍频，听起来在"嗡嗡地呼吸"；
+      4) 尾音长（4 秒级），高频衰减快、低频衰减慢。
+    """
+    d = 4.2
+    n = int(d * SAMPLE_RATE)
+    out = np.zeros(n, dtype=np.float32)
+    f0 = 112.0
+    # (倍频, 幅度, 衰减时间常数)
+    parts = [
+        (0.50, 0.60, 4.4), (1.00, 0.70, 3.4), (1.19, 0.42, 2.4),
+        (1.50, 0.30, 2.1), (2.00, 0.34, 1.8), (2.51, 0.18, 1.3),
+        (3.01, 0.13, 1.0), (4.17, 0.09, 0.75), (5.43, 0.06, 0.55),
+        (6.79, 0.04, 0.42),
+    ]
+    for mult, amp, tau in parts:
+        dur = min(d, tau * 1.8)
+        sig = _osc(f0 * mult, dur, "sine")
+        m = sig.shape[0]
+        tt = np.arange(m, dtype=np.float32) / SAMPLE_RATE
+        env = np.exp(-tt / tau) * (1.0 - np.exp(-tt * 260.0))
+        # 拍频：单个振荡器 × 缓慢余弦调制，等价于两个轻微失谐的分音
+        beat = 1.0 + 0.32 * np.cos(2.0 * math.pi * (f0 * mult * 0.0042) * tt)
+        out[:m] += (sig * env * beat * amp).astype(np.float32)
+    # 起音撞击：宽带噪声（12ms 衰完）+ 一记高频"叮"
+    _n1 = int(0.06 * SAMPLE_RATE)
+    hit = _osc(0.0, 0.06, "noise") * np.exp(
+        -np.arange(_n1, dtype=np.float32) / SAMPLE_RATE / 0.010)
+    out[:_n1] += (hit * 0.30).astype(np.float32)
+    _n2 = int(0.40 * SAMPLE_RATE)
+    ding = _osc(f0 * 9.2, 0.40, "sine") * np.exp(
+        -np.arange(_n2, dtype=np.float32) / SAMPLE_RATE / 0.085)
+    out[:_n2] += (ding * 0.09).astype(np.float32)
+    out = np.tanh(out * 1.1).astype(np.float32)      # 软限幅，别叠出爆音
+    out = _reverb(out, 0.55, 0.78)
+    # 归一化到 0.9：峰值超 1.0 会在转 int16 时削波，听起来"劈"
+    _pk = float(np.abs(out).max())
+    if _pk > 0.001:
+        out = (out / _pk * 0.9).astype(np.float32)
+    return out
 
 
 def _build_sfx():
