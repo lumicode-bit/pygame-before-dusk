@@ -294,20 +294,19 @@ TREE_W, TREE_H = 92, 130          # 碰撞盒（贴树干，比 132×165 精灵�
 TREE_HP = 150
 TREE_SPEED = 46.0                 # 树精扎根缓慢挪动
 TREE_TOUCH_DMG = 14
-TREE_EGG_CD = 3.1                 # 扔蛋冷却（普通）
-TREE_EGG_CD_RAGE = 2.0            # 半血后更频繁
+TREE_EGG_CD = 1.5                 # 扔蛋冷却（普通）
+TREE_EGG_CD_RAGE = 0.9            # 半血后更频繁
 TREE_THROW_RANGE = 640.0          # 超过这个距离不扔（避免打不到）
 TREE_WINDUP = 0.55                # 举手蓄力时长
-TREE_RECOVER = 0.55
+TREE_RECOVER = 0.45
 TREE_SCALE = 0.55                 # 与 sprites.TREE_SCALE 一致
 # 蛋（投射物，抛物线）
 EGG_R = 10
 EGG_GRAV = 900.0
 EGG_LIFE = 4.5
-EGG_DMG = 16
 # 紫色爆炸（蛋命中角色/地面/墙体）
-EXPL_R = 78.0                     # 伤害/视觉半径
-EXPL_DMG = 22
+EXPL_R = 84.0                     # 伤害/视觉半径
+EXPL_DMG = 30
 EXPL_TIME = 0.62
 # ---- 岩浆小 Boss（原熔炉守卫迁移到岩浆坑）----
 LAVA_BOSS_TRIGGER_PAD = 150       # 玩家进入岩浆区前后这么多像素就唤醒
@@ -321,16 +320,16 @@ ERUPT_DMG = 14
 ERUPT_TIME = 0.5            # 喷发视觉持续
 
 # ---- 树精：嘴里喷幽蓝火焰（灼烧）----
-BREATH_CD = 5.2             # 喷火冷却
+BREATH_CD = 3.8             # 喷火冷却
 BREATH_WINDUP = 0.6         # 仰头蓄力（口中聚幽蓝）
 BREATH_TIME = 1.1           # 火焰持续
 BREATH_LEN = 176            # 火焰射程（短程喷火，与远程扔蛋区分）
 BREATH_H = 112              # 火焰纵向判定高度（从口到脚下）
 BREATH_TICK = 0.3           # 灼烧判定间隔
-BREATH_TICK_DMG = 4
+BREATH_TICK_DMG = 5
 BURN_TIME = 2.5             # 离开火焰后仍灼烧
 BURN_TICK = 0.5
-BURN_TICK_DMG = 3
+BURN_TICK_DMG = 4
 
 # 冲刺
 DASH_SPEED = 640.0
@@ -534,7 +533,7 @@ class Monster:
                  "elite", "enraged", "cast_cd", "anchor_y", "stuck_t",
                  "phase", "slam_cd", "summoned", "guard_x", "tower",
                  "arena", "egg_cd", "windup", "lava", "erupt_cd", "breath_cd",
-                 "tree")
+                 "tree", "egg_pid")
 
     def __init__(self, mid, kind, x, y):
         self.mid = mid
@@ -573,6 +572,7 @@ class Monster:
         self.lava = False          # 岩浆小 Boss：泡在岩浆表面、不坠落
         self.erupt_cd = ERUPT_CD   # 岩浆喷发冷却
         self.breath_cd = BREATH_CD  # 树精喷幽蓝火焰冷却
+        self.egg_pid = None        # 这发蛋锁定的目标角色（蓄力时选定，随机挑）
         self.tree = False          # 树精 Boss（kind 仍是 "boss"，用此标记区分外观/技能）
 
     def rect(self):
@@ -2450,7 +2450,12 @@ class GameEngine:
                 # 蓄力越满越亮，给玩家"要扔了"的读秒
                 m.flash = max(0.0, 1.0 - m.windup / TREE_WINDUP) * 0.55
                 if m.windup <= 0.0:
-                    self._spawn_egg(m, target)
+                    # 蛋砸的是蓄力开始时随机挑的那个角色；他要是中途倒了就换一个活的
+                    tp = self.players.get(m.egg_pid) if m.egg_pid is not None else None
+                    if tp is None or tp["hp"] <= 0:
+                        tp = random.choice(alive)
+                    self._spawn_egg(m, tp)
+                    m.egg_pid = None
                     m.state = "recover"
                     m.state_t = 0.0
             elif m.state == "breathe_wind":
@@ -2488,6 +2493,19 @@ class GameEngine:
                     m.state = "throw"
                     m.state_t = 0.0
                     m.windup = TREE_WINDUP
+                    # 随机挑目标（不再是"只打最近的人"）：这样站远处的弓手也会被点名，
+                    # 不能一直躲在后面安全输出。只在射程内的活人里挑。
+                    _cand = [(pid, p) for pid, p in self.players.items()
+                             if p["hp"] > 0
+                             and abs(p["x"] - m.x) < TREE_THROW_RANGE
+                             and abs(p["y"] - m.y) < 220]
+                    if _cand:
+                        _pid, _tp = random.choice(_cand)
+                    else:
+                        _pid, _tp = None, target
+                    m.egg_pid = _pid
+                    # 抬手的方向跟着目标走，否则会朝反方向扔
+                    m.dir = 1 if _tp["x"] >= m.x else -1
                     m.egg_cd = TREE_EGG_CD_RAGE if m.phase >= 2 else TREE_EGG_CD
                     self.events.append(("boss_windup", int(m.x), int(m.y - TREE_H + 24)))
         except Exception as e:
