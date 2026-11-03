@@ -15,6 +15,7 @@ audio.py —— 《暮色之前》全程序化音频引擎
 游戏逻辑与画面不受影响。
 """
 import math
+import os
 import threading
 import time
 
@@ -422,6 +423,10 @@ def _sfx_fall():
     return _sweep(700, 90, d, "tri") * _env(int(d * SAMPLE_RATE), 0.01, 0.1, 0.5, 0.4, 0.12) * 0.7
 
 
+_ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "assets", "sfx")
+
+
 def _sfx_bell():
     """丧钟：撞击噪声 + 非谐分音列（含小三度 tierce）+ 分音拍频 + 长尾。
 
@@ -482,8 +487,20 @@ def _build_sfx():
         "checkpoint": _sfx_checkpoint, "chest": _sfx_chest,
         "lava": _sfx_lava, "fall": _sfx_fall, "bell": _sfx_bell,
     }
+    # 有真实录音的优先用录音（assets/sfx/*.wav，CC0 素材），没有再退回合成
+    _samples = {
+        "bell": os.path.join(_ASSET_DIR, "bell.wav"),
+    }
     for name, fn in table.items():
         try:
+            _sp = _samples.get(name)
+            if _sp and os.path.exists(_sp):
+                import pygame as _pg          # audio.py 不在模块级 import pygame
+                snd = _pg.mixer.Sound(_sp)
+                if snd is not None:
+                    _sfx_bank[name] = snd
+                    _log("音效 %s 使用录音: %s" % (name, os.path.basename(_sp)))
+                    continue
             mono = fn()
             snd = _to_sound(_stereo(mono, 0.0, 0.6))
             if snd is not None:

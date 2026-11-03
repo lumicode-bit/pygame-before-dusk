@@ -1,0 +1,12 @@
+音效素材来源
+========================================================
+bell.wav
+  原始文件: Cloche de l'Eglise de Sainte-Marie-des-Batignolles.ogg
+  来源    : Wikimedia Commons
+            https://commons.wikimedia.org/wiki/File:Cloche_de_l%27Eglise_de_Sainte-Marie-des-Batignolles.ogg
+  作者    : milo
+  许可    : CC0 1.0（公有领域贡献，可商用、免署名）
+  处理    : 取其中单次钟响，截取 2.9 秒，尾部 0.55s 淡出，归一化到 -0.7dBFS
+  用途    : 失败结算「丧钟」音效
+
+其余音效全部由 audio.py 程序化合成，无外部素材。
