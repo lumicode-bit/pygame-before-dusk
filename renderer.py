@@ -502,6 +502,8 @@ class WorldRenderer:
         self._draw_pit(surf, cam_x, cam_y, t, st)
         # 树精死亡后：附近地面焕发生机（画在地形之上、实体之下）
         self._draw_blooms(surf, cam_x, cam_y, t, st)
+        # 砸地落拳：地面崩裂（同样贴地、在实体之下）
+        self._draw_cracks(surf, cam_x, cam_y, t, st)
         # 陷阱
         self._draw_ground_spikes(surf, cam_x, cam_y, t, st)
         self._draw_hammers(surf, cam_x, cam_y, t, st)
@@ -2301,6 +2303,107 @@ class WorldRenderer:
                     fy = my + rnd.uniform(-H * 0.32, H * 0.32) + math.sin(t * 9 + i) * 5
                     pygame.draw.circle(surf, (175, 228, 255),
                                        (int(fx), int(fy)), max(1, int(2 * (1 - tt))))
+            except Exception:
+                pass
+
+    def _draw_cracks(self, surf, cam_x, cam_y, t, st):
+        """砸地落拳：地面崩裂的放射状裂纹 + 崩起的碎石（纯表现，无伤害）。
+
+        几何用固定 seed 的随机数逐帧重算，所以裂纹形状稳定不抖；
+        余烬/碎石的随机数各用独立 Random，避免因条件分支改变取样顺序而闪烁。
+        """
+        for c in st.get("cracks", []):
+            try:
+                cx = float(c["x"]) - cam_x
+                cy = float(c["y"]) - cam_y
+                age = float(c["t"])
+                mx = float(c.get("max", 3.2) or 3.2)
+                if age >= mx:
+                    continue
+                pw = float(c.get("power", 1.0) or 1.0)
+                fade = 1.0 if age < mx * 0.55 else max(0.0, (mx - age) / (mx * 0.45))
+                if fade <= 0.01:
+                    continue
+                seed = int(c.get("seed", 7))
+                rnd = random.Random(seed)
+                rnd2 = random.Random(seed + 991)
+                rnd3 = random.Random(seed + 7717)
+                R = int(78 * pw)
+                sq = 0.42                      # 地面透视压扁
+                W, H = R * 2 + 20, int(R * sq * 2) + 20
+                s = pygame.Surface((W, H), pygame.SRCALPHA)
+                ox, oy = W // 2, H // 2
+                # 焦痕
+                pygame.draw.ellipse(s, (18, 12, 10, int(120 * fade)),
+                                    (ox - int(R * 0.60), oy - int(R * 0.60 * sq),
+                                     int(R * 1.20), int(R * 1.20 * sq)))
+                # 冲击扬尘：前 0.45s 向外扩（薄薄一层，别做成横条）
+                if age < 0.45:
+                    dk = 1.0 - age / 0.45
+                    rr = int(R * (0.40 + 0.62 * (age / 0.45)))
+                    pygame.draw.ellipse(s, (198, 170, 132, int(40 * dk)),
+                                        (ox - rr, oy - int(rr * sq * 1.15),
+                                         rr * 2, max(2, int(rr * 2 * sq * 1.15))))
+                # 放射裂纹
+                n = 9
+                for i in range(n):
+                    ang = (i / float(n)) * math.tau + rnd.uniform(-0.16, 0.16)
+                    ln = R * rnd.uniform(0.60, 1.0)
+                    px, py = float(ox), float(oy)
+                    pts = [(px, py)]
+                    segs = 3
+                    a = ang
+                    for _k in range(segs):
+                        a += rnd.uniform(-0.22, 0.22)
+                        step = ln / segs
+                        px += math.cos(a) * step
+                        py += math.sin(a) * step * sq
+                        pts.append((px, py))
+                    # 分叉小裂（从主裂中段斜着岔出去，像真的崩裂）
+                    br = []
+                    for _b in range(2):
+                        if rnd.random() < 0.55:
+                            bi = 1 + _b
+                            bx0, by0 = pts[bi]
+                            ba = a + rnd.choice((-1, 1)) * rnd.uniform(0.5, 0.9)
+                            bl = ln * rnd.uniform(0.22, 0.42)
+                            br.append([(bx0, by0),
+                                       (bx0 + math.cos(ba) * bl,
+                                        by0 + math.sin(ba) * bl * sq)])
+                    # 裂口：暗色沟槽 + 上沿暖色高光（有厚度感）
+                    pygame.draw.lines(s, (22, 13, 10, int(240 * fade)), False, pts, 4)
+                    pygame.draw.lines(s, (96, 52, 30, int(150 * fade)), False,
+                                      [(x, y - 2.0) for (x, y) in pts], 1)
+                    for _bp in br:
+                        pygame.draw.lines(s, (26, 16, 12, int(200 * fade)), False, _bp, 2)
+                    # 刚砸下时裂缝里透出橙光（沿裂口一段，不是散点）
+                    _es = [rnd3.random() for _k in range(segs)]
+                    if age < 0.75:
+                        ek = (1.0 - age / 0.75) * fade
+                        for _k in range(segs):
+                            if _es[_k] < 0.75:
+                                x0, y0 = pts[_k]
+                                x1, y1 = pts[_k + 1]
+                                mxp = (x0 + (x1 - x0) * 0.45, y0 + (y1 - y0) * 0.45)
+                                pygame.draw.line(s, (255, 128, 52, int(210 * ek)),
+                                                 (x0, y0), mxp, 2)
+                                pygame.draw.line(s, (255, 226, 170, int(170 * ek)),
+                                                 (x0, y0 - 1), mxp, 1)
+                # 崩起的碎石（已落地，随时间淡出）
+                for i in range(7):
+                    bx = ox + rnd2.uniform(-R * 0.92, R * 0.92)
+                    by = oy + rnd2.uniform(-R * 0.92, R * 0.92) * sq
+                    bw = rnd2.uniform(3.0, 7.0) * pw
+                    bh = rnd2.uniform(2.5, 5.0) * pw
+                    col = ((44, 32, 26) if i % 2 else (68, 52, 42))
+                    a_r = int(215 * fade)
+                    pygame.draw.polygon(s, (col[0], col[1], col[2], a_r),
+                                        [(bx - bw, by), (bx - bw * 0.2, by - bh),
+                                         (bx + bw, by - bh * 0.4), (bx + bw * 0.6, by)])
+                    pygame.draw.line(s, (126, 96, 72, int(120 * fade)),
+                                     (bx - bw * 0.2, by - bh),
+                                     (bx + bw * 0.6, by - bh * 0.5), 1)
+                surf.blit(s, (int(cx) - ox, int(cy) - oy))
             except Exception:
                 pass
 

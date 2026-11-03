@@ -767,6 +767,7 @@ class GameEngine:
         self.eggs = []              # 树精扔出的蛋（抛物线投射物）
         self.explosions = []        # 紫色爆炸
         self.blooms = []            # 树精死亡后地面焕发生机
+        self.cracks = []            # 砸地留下的地面裂纹 + 崩土
         self.lava_eruptions = []    # 岩浆喷发（熔炉守卫技能）
         self.breaths = []           # 树精喷出的幽蓝火焰
         self.lava_boss_spawned = False
@@ -1007,6 +1008,7 @@ class GameEngine:
             self._update_breaths(dt)
             self._update_burn(dt)
             self._update_blooms(dt)
+            self._update_cracks(dt)
             self._update_shockwaves(dt)
             self._update_vents(dt)
             self._update_rune_gate(dt)
@@ -2585,6 +2587,27 @@ class GameEngine:
                 out.append(b)
         self.blooms = out
 
+    def _spawn_crack(self, x, y, power=1.0):
+        """砸地裂纹：在地面留下放射状裂纹 + 崩起的碎石（纯表现，无伤害）。"""
+        try:
+            self.cracks.append({
+                "x": float(x), "y": float(y),
+                "t": 0.0, "max": 3.2, "seed": int(x) * 31 + int(y) * 7 + 17,
+                "power": float(power),
+            })
+            if len(self.cracks) > 8:
+                del self.cracks[:-8]
+        except Exception as e:
+            write_log("砸地裂纹生成异常: %r" % (e,))
+
+    def _update_cracks(self, dt):
+        out = []
+        for c in self.cracks:
+            c["t"] += dt
+            if c["t"] < c["max"]:
+                out.append(c)
+        self.cracks = out
+
     def _spawn_eruption(self, x, y):
         """岩浆喷发：先在地面画预警圈，ERUPT_DELAY 后喷起岩浆柱造成伤害。"""
         try:
@@ -2755,6 +2778,8 @@ class GameEngine:
                         self._lava_slam_eruptions(m)
                     else:
                         self._spawn_shockwave(m)
+                    # 落拳砸地：地面崩裂 + 碎石（两种 Boss 都有）
+                    self._spawn_crack(m.x, m.y, 1.25 if m.lava else 1.0)
                     m.state = "recover"
                     m.state_t = 0.0
                     m.slam_cd = BOSS_SLAM_CD
@@ -3360,6 +3385,10 @@ class GameEngine:
                 "blooms": [{"x": round(b["x"], 1), "y": round(b["y"], 1),
                            "t": round(b["t"], 2), "max": b["max"],
                            "seed": b["seed"]} for b in self.blooms],
+                "cracks": [{"x": round(c["x"], 1), "y": round(c["y"], 1),
+                           "t": round(c["t"], 2), "max": c["max"],
+                           "seed": c["seed"], "power": round(c["power"], 2)}
+                          for c in self.cracks],
                 "shockwaves": [{"x": round(w["x"], 1), "y": round(w["y"], 1),
                                 "r": round(w["r"], 1)} for w in self.shockwaves],
                 "duo_open": self.duo_gate_open,
@@ -3404,7 +3433,8 @@ class GameEngine:
                     "monsters": [], "rifts": [], "plates": [], "pads": [], "rocks": [],
                     "hammers": [], "fall_rocks": [], "checkpoints": [], "chests": [],
                     "corpses": [], "fireballs": [], "shockwaves": [],
-                    "eggs": [], "explosions": [], "blooms": [], "lava_eruptions": [],
+                    "eggs": [], "explosions": [], "blooms": [], "cracks": [],
+                    "lava_eruptions": [],
                     "breaths": [],
                     "duo_open": False, "duo_hold": 0.0,
                     "difficulty": 1.0,

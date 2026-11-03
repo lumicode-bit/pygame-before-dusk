@@ -2244,6 +2244,9 @@ class App:
                     audio.sfx("hammer", 0.85)
                     self.cam.add_trauma(0.5)
                     self.particles.burst("debris", x, y - 4, (160, 150, 140), count=20, power=1.3)
+                    # 落拳崩地：扬尘 + 火星（配合地面裂纹）
+                    self.particles.burst("dust", x, y, (200, 176, 148), count=14, power=1.7)
+                    self.particles.burst("spark", x, y - 6, (255, 150, 70), count=10, power=1.2)
                 elif k == "respawn":
                     audio.sfx("death", 0.8)
                     self.post.hit_flash((120, 20, 30), 0.7)

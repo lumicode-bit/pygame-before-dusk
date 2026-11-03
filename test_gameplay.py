@@ -370,6 +370,13 @@ check("前摇时长足够反应(>=0.4s)", wind_ticks * core.TICK_DT >= 0.4,
       "%.2fs" % (wind_ticks * core.TICK_DT))
 check("二阶段会跳起砸地", saw_slam, str(b.state))
 check("砸地产生冲击波", len(e.shockwaves) + (1 if saw_slam else 0) > 0, str(len(e.shockwaves)))
+check("砸地留下地面裂纹", len(e.cracks) > 0, "cracks=%d" % len(e.cracks))
+# 裂纹是纯表现：会自己过期消失，不会无限堆积
+if e.cracks:
+    cmax = e.cracks[-1]["max"]
+    for _ in range(int(cmax / core.TICK_DT) + 6):
+        step(e, 1)
+    check("裂纹会过期消失（不无限堆积）", len(e.cracks) == 0, "cracks=%d" % len(e.cracks))
 
 b.hp = b.maxhp * 0.3
 for _ in range(30):
