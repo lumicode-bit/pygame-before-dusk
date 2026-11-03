@@ -2041,7 +2041,13 @@ class App:
             self.cam.add_trauma(0.55)
 
         # 暗场：越往后越黑
-        alpha = int(min(236, 96 + t * 30 + n * 20))
+        alpha = int(min(186, 92 + t * 24 + n * 12))
+        # 血色：先给世界染一层红，再压暗 —— 反过来会变成"整块红布"，世界结构全糊掉
+        red_a = int(min(46, 14 + t * 8 + n * 8))
+        red = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        red.fill((150, 20, 28, red_a))
+        s.blit(red, (0, 0))
+
         veil = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
         veil.fill((8, 6, 10, alpha))
         s.blit(veil, (0, 0))
@@ -2127,6 +2133,20 @@ class App:
                 if a > 6 and fy < SCREEN_H:
                     pygame.draw.circle(s, theme.alpha_color((150, 132, 110), a),
                                        (fx, fy), prnd.randint(1, 2))
+
+        # 每响一次的红色脉冲（短促一闪，叠在最上层）
+        flash = 0
+        for r in RINGS:
+            if t > r:
+                d = t - r
+                if d < 0.42:
+                    flash = max(flash, int(70 * (1.0 - d / 0.42)))
+        if flash > 0:
+            # BLEND_RGBA_ADD 不吃 alpha（会把整屏直接 +86 红），必须按强度预乘
+            _k = flash / 255.0
+            pulse = pygame.Surface((SCREEN_W, SCREEN_H))
+            pulse.fill((int(90 * _k), int(8 * _k), int(16 * _k)))
+            s.blit(pulse, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
 
         # 四周暗角（压住情绪）
         ui.dim(s, int(70 + 40 * (t / 3.5)), (4, 3, 6))
