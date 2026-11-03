@@ -415,8 +415,17 @@ def divider(surf, x1, x2, y, color=None):
     pygame.draw.line(surf, color, (x1, y), (x2, y), 1)
 
 
+_dim_cache = {}
+
+
 def dim(surf, alpha=170, color=(5, 6, 12)):
-    s = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+    """全屏压暗。缓存同尺寸的 Surface 反复 fill —— 每帧 new 一张
+    1280×720×4B 的图（≈3.7MB）在丧钟/结算这类每帧都要压暗的场景很浪费。"""
+    size = surf.get_size()
+    s = _dim_cache.get(size)
+    if s is None:
+        s = pygame.Surface(size, pygame.SRCALPHA)
+        _dim_cache[size] = s
     s.fill(theme.alpha_color(color, alpha))
     surf.blit(s, (0, 0))
     return s

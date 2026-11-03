@@ -571,6 +571,7 @@ class App:
         self._lives_prev = None
         self.bell_t = None         # 丧钟演出计时（None = 没在演）
         self.bell_ring_n = 0       # 已经敲了几响
+        self._bell_bg = None       # 丧钟背景快照（死亡定格那一帧）
         self.msg_text = ""
         self.msg_t = 0.0
         self.chest_hint = 0.0
@@ -662,6 +663,7 @@ class App:
             self.result_shown = False
             self.bell_t = None
             self.bell_ring_n = 0
+            self._bell_bg = None
             self.heart_break = []
             self._lives_prev = None
             self.run_started = time.time()
@@ -1810,6 +1812,24 @@ class App:
         # ---------- 2. 事件 → 音效/粒子/震动 ----------
         self.handle_events(evs, focus_pid)
 
+        # ---------- 丧钟：世界已定格，只贴快照 ----------
+        # 原来每帧仍完整渲染世界 + HUD（实测 308 次 blit / 约 12ms），
+        # 然后被 80% 暗场盖住 —— 等于白画。改成第一帧存快照，之后直接贴。
+        if self.bell_t is not None and self._bell_bg is not None:
+            s = self.screen
+            s.blit(self._bell_bg, (0, 0))
+            self.bell_t += self.dt
+            for ev in events:
+                if ev.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                    self.bell_t = 99.0          # 任意键跳过
+                    break
+            self._draw_bell(s)
+            if self.bell_t >= BELL_LEN:
+                self.bell_t = None
+                self._bell_bg = None
+                self.goto("RESULT", 0.55)
+            return
+
         # ---------- 3. 相机 ----------
         self.cam.update(self.dt, fx_x, fx_y - 105, (core.WORLD_W, core.WORLD_H), 8.0)
 
@@ -1862,9 +1882,12 @@ class App:
                 if ev.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
                     self.bell_t = 99.0          # 任意键跳过
                     break
+            if self._bell_bg is None:
+                self._bell_bg = s.copy()        # 冻结这一帧，后面每帧直接贴
             self._draw_bell(s)
             if self.bell_t >= BELL_LEN:
                 self.bell_t = None
+                self._bell_bg = None
                 self.goto("RESULT", 0.55)
             return
         if not single_mode and (st.get("lobby") or st.get("paused")):
@@ -1943,6 +1966,11 @@ class App:
 
         # ---------- 6. 输入 ----------
         for ev in events:
+            if self.bell_t is not None or self.result_shown:
+                # 丧钟演出 / 已判定结果（等待转场）期间：只认"跳过"（在 scene_game 里处理），
+                # 其它输入一律吞掉。否则 ESC 会 goto("PAUSE")：
+                # 演到一半就卡住，回来从断点接着演；转场那 0.55s 里按 ESC 还会被拽进暂停菜单。
+                break
             if ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     if self.help_open:
@@ -2026,10 +2054,26 @@ class App:
                 # 失败不立刻结算：先演丧钟（3 响），演完再进结算页
                 self.bell_t = 0.0
                 self.bell_ring_n = 0
+                self._bell_bg = None
             else:
                 audio.sfx("win", 1.0)
                 self.goto("RESULT", 1.4)
 
+
+    def _fx_layer(self, rgb=False):
+        """复用的全屏图层。
+
+        丧钟演出每帧要盖 3~4 层全屏半透明（血色、暗场、红色脉冲、暗角）。
+        原来每层都 new 一张 1280×720×4B（≈3.7MB）Surface，一帧就分配 15MB，
+        实测比正常游玩多花 8ms/帧（20ms → 28ms）。改成一张缓存反复 fill。
+        """
+        key = "_fx_surf_rgb" if rgb else "_fx_surf"
+        surf = getattr(self, key, None)
+        size = (SCREEN_W, SCREEN_H)
+        if surf is None or surf.get_size() != size:
+            surf = pygame.Surface(size) if rgb else pygame.Surface(size, pygame.SRCALPHA)
+            setattr(self, key, surf)
+        return surf
 
     def _bell_surface(self, bw=300, bh=300):
         """生成钟体（缓存）：控制点曲线轮廓 + 平滑圆柱明暗 + 钟箍 + 外撇钟唇。
@@ -2163,15 +2207,20 @@ class App:
 
         # 暗场：越往后越黑
         alpha = int(min(186, 92 + t * 24 + n * 12))
-        # 血色：先给世界染一层红，再压暗 —— 反过来会变成"整块红布"，世界结构全糊掉
+        # 血色：先给世界染一层红，再压暗 —— 反过来会变成"整块红布"，世界结构全糊掉。
+        # 两层合并成一层（省一次全屏 blit）：叠加后 alpha/颜色按 over 合成算。
         red_a = int(min(46, 14 + t * 8 + n * 8))
-        red = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-        red.fill((150, 20, 28, red_a))
-        s.blit(red, (0, 0))
-
-        veil = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-        veil.fill((8, 6, 10, alpha))
-        s.blit(veil, (0, 0))
+        a1 = red_a / 255.0
+        a2 = alpha / 255.0
+        at = a1 + a2 * (1.0 - a1)
+        if at > 0.004:
+            k = a2 * (1.0 - a1) / at
+            col = (int(150 * (1.0 - k) + 8 * k),
+                   int(20 * (1.0 - k) + 6 * k),
+                   int(28 * (1.0 - k) + 10 * k))
+            layer = self._fx_layer()
+            layer.fill((col[0], col[1], col[2], int(at * 255)))
+            s.blit(layer, (0, 0))
 
         # ---- 血月：天上挂一轮红月，钟每响一次，月面往下淌血 ----
         _mk = max(0.0, min(1.0, (t - 0.20) / 0.95))
@@ -2317,7 +2366,7 @@ class App:
         if flash > 0:
             # BLEND_RGBA_ADD 不吃 alpha（会把整屏直接 +86 红），必须按强度预乘
             _k = flash / 255.0
-            pulse = pygame.Surface((SCREEN_W, SCREEN_H))
+            pulse = self._fx_layer(rgb=True)
             pulse.fill((int(90 * _k), int(8 * _k), int(16 * _k)))
             s.blit(pulse, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
 
