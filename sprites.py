@@ -641,6 +641,9 @@ def _boss(pose="walk0"):
         "charge": (-1, 5, ((9, -3), (-9, -3))),
         "slam_up": (-4, 0, ((0, -40), (0, -40))),
         "slam_down": (3, 0, ((7, 9), (-7, 9))),
+        # 砸地前摇：重心下沉（蹲身蓄力），双臂向后下方收
+        "slam_wind": (4, 0, ((4, 8), (-4, 8))),
+        "slam_wind2": (5, 0, ((6, 11), (-6, 11))),
     }
     bob, lean, arm_pose = _POSES.get(pose, _POSES["walk0"])
 
@@ -883,7 +886,12 @@ def prebuild():
     for f in (0, 1):
         get_monster("ground", f)
         get_monster("fly", f)
-        get_monster("boss", f)
         get_monster("caster", f)
+    # Boss 的所有姿势一次性预热（走路/蓄力/冲锋/砸地前摇…），
+    # 避免第一次进某个状态时才现建精灵造成卡顿
+    for _pose in ("walk0", "walk1", "walk2", "walk3", "raise0", "raise1",
+                  "charge0", "charge1", "slam_wind", "slam_wind2",
+                  "slam_up", "slam_down"):
+        get_monster("boss", _pose)
     get_monster("tree", 0)
     get_monster("tree", 1)     # 投掷帧也预热，避免第一次扔蛋时现建卡顿

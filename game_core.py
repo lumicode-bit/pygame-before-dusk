@@ -283,6 +283,7 @@ BOSS_PHASE2 = 0.66          # 血量低于此比例进入二阶段（砸地波�
 BOSS_PHASE3 = 0.33          # 三阶段（召唤术士 + 更频繁冲锋）
 BOSS_SLAM_CD = 4.2
 BOSS_SLAM_POWER = 880
+BOSS_SLAM_TELE = 0.55        # 砸地前摇：蹲身蓄力 + 身上冒火星（给玩家反应时间）
 SHOCK_SPEED = 520.0
 SHOCK_DMG = 12
 SHOCK_MAX_R = 260.0
@@ -2736,7 +2737,17 @@ class GameEngine:
                 m.dir = 1 if dx > 0 else -1
             m.state_t += dt
             m.flash = 0.0
-            if m.state == "slam":
+            if m.state == "slam_wind":
+                # 前摇：蹲身蓄力，身上冒火星（渲染端），读秒结束后才起跳
+                m.vx *= 0.72
+                m.flash = min(1.0, m.state_t / max(0.01, BOSS_SLAM_TELE))
+                if m.state_t >= BOSS_SLAM_TELE:
+                    m.vy = -BOSS_SLAM_POWER
+                    m.state = "slam"
+                    m.state_t = 0.0
+                    m.flash = 0.0
+                    self.events.append(("boss_slam_up", int(m.x), int(m.y)))
+            elif m.state == "slam":
                 m.vx *= 0.8
                 if m.on_ground and m.state_t > 0.35:
                     if m.lava:
@@ -2749,13 +2760,13 @@ class GameEngine:
                     m.slam_cd = BOSS_SLAM_CD
             elif m.state == "walk":
                 # 二阶段起：近身会砸地（守卫=冲击波 / 岩浆=喷发柱）
+                # 先进入 slam_wind 前摇：蹲身冒火星读秒，给玩家躲的时间
                 if (m.phase >= 2 and m.slam_cd <= 0
                         and m.on_ground and abs(dx) < 330):
-                    m.vy = -BOSS_SLAM_POWER
-                    m.state = "slam"
+                    m.state = "slam_wind"
                     m.state_t = 0.0
                     m.vx = 0.0
-                    self.events.append(("boss_slam_up", int(m.x), int(m.y)))
+                    self.events.append(("boss_slam_wind", int(m.x), int(m.y)))
                     return
                 m.vx = m.dir * spd
                 m.atk_cd = max(0.0, m.atk_cd - dt)

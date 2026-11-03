@@ -354,12 +354,20 @@ e.players[0]["invuln"] = 9999
 e.players[1]["invuln"] = 9999
 b.hp = b.maxhp * 0.6
 saw_slam = False
+saw_wind = False
+wind_ticks = 0
 for _ in range(1200):
     step(e, 1)
+    if b.state == "slam_wind":
+        saw_wind = True
+        wind_ticks += 1
     if b.state == "slam":
         saw_slam = True
     if e.shockwaves:
         break
+check("砸地前有前摇读秒（slam_wind）", saw_wind, str(b.state))
+check("前摇时长足够反应(>=0.4s)", wind_ticks * core.TICK_DT >= 0.4,
+      "%.2fs" % (wind_ticks * core.TICK_DT))
 check("二阶段会跳起砸地", saw_slam, str(b.state))
 check("砸地产生冲击波", len(e.shockwaves) + (1 if saw_slam else 0) > 0, str(len(e.shockwaves)))
 

@@ -2204,6 +2204,11 @@ class App:
                     audio.sfx("hammer", 0.75)
                     self.cam.add_trauma(0.4)
                     self.particles.burst("dust", x, y, (240, 200, 170), count=18, power=1.5)
+                elif k == "boss_slam_wind":
+                    # 砸地前摇：低吼 + 脚下火星，明确"要砸了"
+                    audio.sfx("hammer", 0.28)
+                    self.particles.burst("spark", x, y - 40, (255, 170, 80),
+                                         count=10, power=0.9)
                 elif k == "boss_slam_up":
                     audio.sfx("hammer", 0.4)
                     self.particles.burst("dust", x, y, (220, 190, 160), count=8, power=0.8)
@@ -2610,6 +2615,11 @@ class App:
                     theme.text(s, "蓄力中…", (r.centerx + 70, r.y + 14), "tiny",
                                theme.alpha_color((150, 200, 255), 200),
                                align="center", shadow=False)
+            elif st_ == "slam_wind":
+                a = 0.5 + 0.5 * math.sin(self.t * 22)
+                theme.text(s, "砸地！", (r.centerx + 70, r.y + 14), "tiny",
+                           theme.alpha_color((255, 140, 60), int(150 + 105 * a)),
+                           align="center", shadow=False)
             elif boss.get("flash", 0) > 0.55 or st_ == "charge":
                 a = 0.5 + 0.5 * math.sin(self.t * 22)
                 # y 是"中心"（align=center）：写 r.y+6 时 16px 的字会顶出面板上沿
