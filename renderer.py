@@ -2702,6 +2702,12 @@ class WorldRenderer:
                     if _prev is not None and _hp < _prev:
                         self._tree_hurt[_mid] = t
                     self._tree_hp[_mid] = _hp
+                    # 这两个字典按 mid 累积（每局一个新 mid），超过上限就清一次，
+                    # 否则反复重开后会无限增长
+                    if len(self._tree_hp) > 32:
+                        self._tree_hp.clear()
+                        self._tree_hurt.clear()
+                        self._tree_hp[_mid] = _hp
                     _ht = self._tree_hurt.get(_mid, -9.0)
                     if 0.0 <= t - _ht < 0.16:
                         _k2 = 1.0 - (t - _ht) / 0.16
@@ -2777,47 +2783,50 @@ class WorldRenderer:
                             g = img.copy()
                             g.set_alpha(70 - k * 18)
                             surf.blit(g, r.move(-k * 16 * (1 if m.get("dir", 1) > 0 else -1), 0))
-                    surf.blit(img, r)
-                    # 砸地前摇：地面收缩预警圈 + 身上冒火星（读秒，给反应时间）
+                    # 砸地前摇：地面收缩预警圈（画在精灵**之下**，
+                    # 这样环的后半圈会被 Boss 身体挡住，透视才对）
+                    _wk = 0.0
                     if _bs == "slam_wind":
                         _wk = min(1.0, _bt / max(0.01, core.BOSS_SLAM_TELE))
                         _cx = r.centerx
                         _gy = r.bottom - 2
                         _rad = int(158 - 56 * _wk)
                         _al = int(120 + 105 * _wk)
-                        _ring = pygame.Surface((_rad * 2 + 10, 50), pygame.SRCALPHA)
-                        _box = (5, 5, _rad * 2, 40)
-                        # 深色底描边 -> 在亮橙色岩浆上也看得清轮廓
-                        pygame.draw.ellipse(_ring, (46, 10, 6, min(255, _al)),
-                                            _box, 4)
-                        # 亮红环（读秒越近越红越亮）
                         _rc = (int(190 + 65 * _wk), int(52 + 60 * _wk), 40)
-                        pygame.draw.ellipse(_ring, (_rc[0], _rc[1], _rc[2], _al),
-                                            _box, 2)
                         # 危险区薄薄一层填充，明确"这一圈都会砸"
                         _fill = pygame.Surface((_rad * 2, 40), pygame.SRCALPHA)
                         pygame.draw.ellipse(_fill, (_rc[0], 40, 30,
                                                     int(18 + 26 * _wk)),
                                             (0, 0, _rad * 2, 40))
                         surf.blit(_fill, (_cx - _rad, _gy - 20))
+                        _ring = pygame.Surface((_rad * 2 + 10, 50), pygame.SRCALPHA)
+                        _box = (5, 5, _rad * 2, 40)
+                        # 深色底描边 -> 在亮橙色岩浆上也看得清轮廓
+                        pygame.draw.ellipse(_ring, (46, 10, 6, min(255, _al)),
+                                            _box, 4)
+                        # 亮红环（读秒越近越红越亮）
+                        pygame.draw.ellipse(_ring, (_rc[0], _rc[1], _rc[2], _al),
+                                            _box, 2)
                         surf.blit(_ring, (_cx - _rad - 5, _gy - 25))
                         theme.glow_circle(surf, (_cx, _gy), int(52 + 44 * _wk),
                                           (255, 84, 40), 0.16 + 0.24 * _wk, 3)
-                        if _wk > 0.06:
-                            _n = int(5 + 11 * _wk)
-                            for _i in range(_n):
-                                _ph = (t * 2.4 + _i * 0.37) % 1.0
-                                _sx = _cx + int(math.sin(t * 3.1 + _i * 2.7)
-                                                * (12 + 30 * _wk))
-                                _sy = r.top + int(98 - _ph * 86)
-                                _rr = max(1, int(2.4 * (1.0 - _ph) + 0.6))
-                                if _ph < 0.34:
-                                    _c = (255, 246, 200)
-                                elif _ph < 0.70:
-                                    _c = (255, 176, 74)
-                                else:
-                                    _c = (198, 76, 30)
-                                pygame.draw.circle(surf, _c, (_sx, _sy), _rr)
+                    surf.blit(img, r)
+                    # 砸地前摇：身上冒火星（画在精灵之上，火星才是"从身上蹦出来"）
+                    if _bs == "slam_wind" and _wk > 0.06:
+                        _n = int(5 + 11 * _wk)
+                        for _i in range(_n):
+                            _ph = (t * 2.4 + _i * 0.37) % 1.0
+                            _sx = r.centerx + int(math.sin(t * 3.1 + _i * 2.7)
+                                                  * (12 + 30 * _wk))
+                            _sy = r.top + int(98 - _ph * 86)
+                            _rr = max(1, int(2.4 * (1.0 - _ph) + 0.6))
+                            if _ph < 0.34:
+                                _c = (255, 246, 200)
+                            elif _ph < 0.70:
+                                _c = (255, 176, 74)
+                            else:
+                                _c = (198, 76, 30)
+                            pygame.draw.circle(surf, _c, (_sx, _sy), _rr)
                     bw = 64
                     ratio = max(0.0, min(1.0, m["hp"] / float(max(1, m.get("maxhp", 1)))))
                     bx = r.centerx - bw // 2
