@@ -2027,6 +2027,103 @@ class App:
                 self.goto("RESULT", 1.4)
 
 
+    def _bell_surface(self, bw=300, bh=300):
+        """生成钟体（缓存）：控制点曲线轮廓 + 平滑圆柱明暗 + 钟箍 + 外撇钟唇。
+
+        要点（之前丑在这三条）：
+          1. 轮廓不能是直边/等幂曲线 —— 用控制点做出"肩圆、腰直、口外撇"的钟形；
+          2. 明暗不能是 10 条硬色带 —— 用 24 段 + 余弦调制，读起来是圆柱；
+          3. 钟唇要厚、要有内壁黑洞，不然像灯罩。
+        """
+        key = (bw, bh)
+        if getattr(self, "_bell_key", None) == key and getattr(self, "_bell_surf", None):
+            return self._bell_surf, (bw + 56) // 2, 52
+        sw, sh = bw + 56, bh + 110
+        surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        ox, oy = sw // 2, 52
+
+        # 轮廓控制点：(t, 半宽)。t=0 钟顶 -> t=1 钟唇
+        CP = [(0.00, 64), (0.08, 68), (0.20, 76), (0.36, 86),
+              (0.54, 98), (0.72, 112), (0.88, 126), (1.00, 138)]
+
+        def half_at(t):
+            t = max(0.0, min(1.0, t))
+            for i in range(len(CP) - 1):
+                t0, w0 = CP[i]
+                t1, w1 = CP[i + 1]
+                if t <= t1:
+                    k = (t - t0) / max(1e-6, t1 - t0)
+                    # smoothstep，接缝不出现折角
+                    k = k * k * (3 - 2 * k)
+                    return w0 + (w1 - w0) * k
+            return CP[-1][1]
+
+        seg = 24
+        for y in range(bh):
+            t = y / float(bh - 1)
+            hw = half_at(t)
+            for i in range(seg):
+                u0 = i / float(seg)
+                u1 = (i + 1) / float(seg)
+                x0 = int(-hw + 2 * hw * u0)
+                x1 = int(-hw + 2 * hw * u1)
+                u = (u0 + u1) * 0.5
+                # 圆柱明暗：左前侧受光，右侧沉入暗部
+                sh = 0.52 + 0.48 * math.cos((u - 0.30) * 3.0)
+                sh = max(0.18, min(1.0, sh))
+                col = (int(38 + 118 * sh), int(26 + 86 * sh), int(15 + 50 * sh))
+                pygame.draw.rect(surf, col, (ox + x0, oy + y, max(1, x1 - x0), 1))
+
+        # 高光：贴着受光面的一条竖向反光（跟着轮廓走）
+        for y in range(bh):
+            t = y / float(bh - 1)
+            hw = half_at(t)
+            hx = int(-hw + 2 * hw * 0.24)
+            a = int(120 * max(0.0, 1.0 - abs(t - 0.42) * 1.5))
+            if a > 4:
+                pygame.draw.line(surf, (214, 176, 116, a),
+                                 (ox + hx, oy + y), (ox + hx + 2, oy + y))
+
+        # 三道钟箍：跟着轮廓走，上沿亮、下沿暗
+        for frac in (0.14, 0.40, 0.66):
+            y0 = int(bh * frac)
+            for dy in range(-4, 5):
+                y = y0 + dy
+                if not (0 <= y < bh):
+                    continue
+                hw = half_at(y / float(bh - 1)) + 2
+                if dy == -4:
+                    col = (150, 112, 70)
+                elif dy >= 3:
+                    col = (30, 20, 13)
+                else:
+                    col = (78, 56, 34)
+                pygame.draw.rect(surf, col, (ox - int(hw), oy + y, int(hw) * 2, 1))
+
+        # 钟唇：厚口外撇 + 内壁黑洞 + 唇口高光
+        lip_y = oy + bh - 1
+        hw_lip = half_at(1.0)
+        pygame.draw.polygon(surf, (74, 53, 32),
+                            [(ox - hw_lip - 12, lip_y - 16), (ox + hw_lip + 12, lip_y - 16),
+                             (ox + hw_lip + 6, lip_y + 10), (ox - hw_lip - 6, lip_y + 10)])
+        pygame.draw.polygon(surf, (44, 31, 19),
+                            [(ox - hw_lip - 12, lip_y - 16), (ox - hw_lip + 20, lip_y - 16),
+                             (ox - hw_lip + 26, lip_y + 10), (ox - hw_lip - 6, lip_y + 10)])
+        pygame.draw.ellipse(surf, (18, 12, 10),
+                            (ox - hw_lip + 8, lip_y - 6, int(hw_lip * 2) - 16, 28))
+        pygame.draw.ellipse(surf, (116, 88, 56),
+                            (ox - hw_lip - 12, lip_y - 18, int(hw_lip * 2) + 24, 30), 3)
+
+        # 顶部：钟肩圆顶 + 细铁吊环
+        pygame.draw.ellipse(surf, (96, 70, 44), (ox - 62, oy - 10, 124, 30))
+        pygame.draw.ellipse(surf, (128, 96, 58), (ox - 62, oy - 10, 124, 30), 2)
+        pygame.draw.ellipse(surf, (86, 62, 38), (ox - 22, oy - 34, 44, 34))
+        pygame.draw.ellipse(surf, (20, 14, 11), (ox - 12, oy - 26, 24, 18))
+        pygame.draw.ellipse(surf, (156, 118, 72), (ox - 22, oy - 34, 44, 34), 3)
+        self._bell_surf = surf
+        self._bell_key = key
+        return surf, ox, oy
+
     def _draw_bell(self, s):
         """失败丧钟：暗场 -> 巨钟升起 -> 3 响（每响一震 + 一道裂纹 + 落灰）。
 
@@ -2116,47 +2213,16 @@ class App:
                 swing += math.sin(dt_ * 8.0) * 7.0 * math.exp(-dt_ * 2.4)
         cx = SCREEN_W // 2 + 40 + int(swing)
 
-        bw, bh = 272, 340
-        lip_y = top + bh
-        # 钟体：肩窄口宽（带外扩的钟唇），暖铜色分三层
-        def _bell_pts(inset):
-            return [(cx - bw // 2 + inset, lip_y - 10),
-                    (cx - bw // 2 + 10 + inset, lip_y - 52),
-                    (cx - bw // 2 + 46 + inset, top + 56),
-                    (cx - 34 + inset, top + 2),
-                    (cx + 34 - inset, top + 2),
-                    (cx + bw // 2 - 46 - inset, top + 56),
-                    (cx + bw // 2 - 10 - inset, lip_y - 52),
-                    (cx + bw // 2 - inset, lip_y - 10)]
-        pygame.draw.polygon(s, (52, 37, 26), _bell_pts(0))
-        # 左亮右暗：用两条竖向色带做圆柱感
-        pygame.draw.polygon(s, (74, 53, 36),
-                            [(cx - 96, top + 30), (cx - 40, top + 30),
-                             (cx - 30, lip_y - 12), (cx - 84, lip_y - 12)])
-        pygame.draw.polygon(s, (34, 24, 19),
-                            [(cx + 40, top + 30), (cx + 96, top + 30),
-                             (cx + 84, lip_y - 12), (cx + 30, lip_y - 12)])
-        pygame.draw.polygon(s, (104, 76, 48), _bell_pts(0), 3)
-        # 钟箍：三道横向箍线，让它一眼是"钟"不是"圆锥"
-        for kk, frac in enumerate((0.22, 0.46, 0.72)):
-            yy = int(top + bh * frac)
-            half = int(bw * (0.30 + 0.20 * frac))
-            pygame.draw.line(s, (98, 72, 46), (cx - half, yy), (cx + half, yy), 3)
-            pygame.draw.line(s, (28, 20, 16), (cx - half, yy + 3), (cx + half, yy + 3), 1)
-        # 钟唇（外扩的厚口）+ 口内阴影
-        pygame.draw.polygon(s, (86, 62, 40),
-                            [(cx - bw // 2 - 10, lip_y - 12), (cx + bw // 2 + 10, lip_y - 12),
-                             (cx + bw // 2 - 6, lip_y + 10), (cx - bw // 2 + 6, lip_y + 10)])
-        pygame.draw.ellipse(s, (30, 21, 17),
-                            (cx - bw // 2 + 12, lip_y - 6, bw - 24, 22))
-        pygame.draw.ellipse(s, (118, 86, 54),
-                            (cx - bw // 2 - 10, lip_y - 14, bw + 20, 26), 3)
-        # 钟舌：从口里垂下来的一颗
-        pygame.draw.line(s, (70, 50, 32), (cx, lip_y - 60), (cx + int(swing * 1.6), lip_y + 6), 5)
-        pygame.draw.circle(s, (58, 40, 27), (cx + int(swing * 1.6), lip_y + 8), 11)
-        pygame.draw.circle(s, (96, 70, 44), (cx + int(swing * 1.6) - 3, lip_y + 4), 3)
-        # 吊环
-        pygame.draw.arc(s, (104, 76, 48), (cx - 30, top - 50, 60, 66), 0.35, 2.8, 6)
+        # 钟体：用缓存好的曲线贴图（逐行变宽的色带做出圆柱感）
+        bs, box, boy = self._bell_surface()
+        s.blit(bs, (cx - box + int(swing), top - boy))
+        bh = 300
+        lip_y = top + bh + 12
+        # 钟舌：挂在口内、跟着摆动
+        swx = cx + int(swing * 1.8)
+        pygame.draw.line(s, (58, 40, 25), (cx, lip_y - 74), (swx, lip_y - 4), 6)
+        pygame.draw.circle(s, (52, 36, 24), (swx, lip_y - 2), 13)
+        pygame.draw.circle(s, (94, 68, 42), (swx - 4, lip_y - 6), 5)
 
         # 裂纹：每响一道，从口沿往上裂
         rnd = random.Random(20261103)
@@ -2167,8 +2233,8 @@ class App:
             for seg in range(5):
                 nx = px_ + rnd.randint(-11, 11)
                 ny = py_ - rnd.randint(20, 36)
-                pygame.draw.line(s, (16, 11, 9), (px_, py_), (nx, ny), 2)
-                pygame.draw.line(s, (126, 94, 60), (px_ + 2, py_), (nx + 2, ny), 1)
+                pygame.draw.line(s, (14, 10, 8), (px_, py_), (nx, ny), 3)
+                pygame.draw.line(s, (156, 118, 74), (px_ + 2, py_), (nx + 2, ny), 1)
                 px_, py_ = nx, ny
 
         # 落灰：每响一次，从口沿往下飘
