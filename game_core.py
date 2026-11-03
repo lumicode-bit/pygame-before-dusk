@@ -3469,6 +3469,7 @@ class GameEngine:
                 "fireballs": [{"x": round(f["x"], 1), "y": round(f["y"], 1), "r": f["r"]}
                               for f in self.fireballs],
                 "eggs": [{"x": round(e["x"], 1), "y": round(e["y"], 1),
+                          "vx": round(e["vx"], 1), "vy": round(e["vy"], 1),
                           "spin": round(e["spin"], 2),
                           "trail": [(round(tx, 1), round(ty, 1)) for tx, ty in e["trail"]]}
                          for e in self.eggs],
