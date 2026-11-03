@@ -1261,7 +1261,7 @@ class GameEngine:
             if self.lives <= 0:
                 # 生命耗尽：本局失败（冻结世界，由结算页接管）
                 self.fail = True
-                self.msg = "生命耗尽……远征失败"
+                self.msg = "生命耗尽……他们没能走到最后"
                 self.events.append(("fail", 0, 0))
                 return
             # ---- 复活 ----

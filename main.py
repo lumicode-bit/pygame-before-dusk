@@ -693,7 +693,7 @@ class App:
     def _build_menu(self):
         cx = SCREEN_W // 2
         self.menu_buttons = [
-            ui.Button((cx - 176, 322, 352, 62), "单人远征", "gold", icon="play",
+            ui.Button((cx - 176, 322, 352, 62), "独自上路", "gold", icon="play",
                       sub="AI 伙伴同行 · Tab 随时切换角色", size="sub"),
             ui.Button((cx - 176, 396, 352, 54), "双人联机", "primary", icon="shield",
                       sub="局域网 / ngrok 异地联机"),
@@ -766,7 +766,7 @@ class App:
         x, y = (SCREEN_W - w) // 2, (SCREEN_H - h) // 2
         self.pause_panel = pygame.Rect(x, y, w, h)
         self.pause_buttons = [
-            ui.Button((x + 40, y + 108, 300, 52), "继续远征", "gold", icon="play"),
+            ui.Button((x + 40, y + 108, 300, 52), "继续赶路", "gold", icon="play"),
             ui.Button((x + 40, y + 170, 300, 46), "设置", "secondary", icon="gear"),
             ui.Button((x + 40, y + 224, 300, 46), "重新开始", "secondary", icon="flag"),
             ui.Button((x + 40, y + 278, 300, 46), "返回主菜单", "danger", icon="cross"),
@@ -899,7 +899,7 @@ class App:
         s = self.screen
         self.char_t += self.dt
         self.draw_menu_background(self.dt)
-        theme.text(s, "选择你的远征角色", (SCREEN_W // 2, 96), "h1", (255, 240, 200),
+        theme.text(s, "选择同行者", (SCREEN_W // 2, 96), "h1", (255, 240, 200),
                    align="center", bold=True)
         theme.text(s, "另一名角色由 AI 托管 · 游戏中按 Tab 随时接管", (SCREEN_W // 2, 136),
                    "body", theme.alpha_color(theme.SLATE_200, 210), align="center")
@@ -2737,7 +2737,7 @@ class App:
             pygame.transform.scale(self.world_surf, (SCREEN_W, SCREEN_H), s)
             self.post.draw(s)
         ui.dim(s, 165, (4, 5, 12))
-        ui.panel(s, self.pause_panel, "暂停", "远征已暂停", icon="pause")
+        ui.panel(s, self.pause_panel, "暂停", "路途暂停", icon="pause")
         for b in self.pause_buttons:
             b.update(self.dt, mouse)
             if b.handle(events, mouse):
@@ -2791,8 +2791,8 @@ class App:
 
         is_fail = bool(st.get("fail"))
         ui.panel(s, r,
-                 "远征失败" if is_fail else "远征成功",
-                 "生命耗尽 —— 队伍倒在了暮色里" if is_fail else "暮色之前，你们抵达了传送门",
+                 "长夜降临" if is_fail else "赶在日落之前",
+                 "钟声停下时，暮色已经吞没了他们" if is_fail else "暮色之前，你们抵达了传送门",
                  icon="skull" if is_fail else "star")
 
         # 数值字段一律强制转型：联机时 st 来自网络，字段可能是字符串/None，
@@ -2824,7 +2824,7 @@ class App:
         theme.text(s, "%d" % deaths, (r.x + 400, _ry(152)), "title", (255, 244, 220), bold=True)
         theme.text(s, "评价", (r.x + 400, _ry(196)), "small", theme.SLATE_300)
         comment = "队伍全灭" if is_fail else (
-            "完美远征" if rank == "S" else "配合默契" if rank == "A" else "顺利归来" if rank == "B" else "惊险生还")
+            "毫发无伤" if rank == "S" else "配合默契" if rank == "A" else "顺利归来" if rank == "B" else "惊险生还")
         theme.text(s, comment, (r.x + 400, _ry(218)), "sub", rcol, bold=True)
 
         # ---- 得分与历史记录 ----
@@ -2939,7 +2939,7 @@ class App:
             last_state = None
             self.last_st = None
             self.grid = engine.grid
-            add_chat("系统", "单人远征开始 · Tab 切换操控角色 · Shift 冲刺")
+            add_chat("系统", "上路了 · Tab 切换操控角色 · Shift 冲刺")
             self.goto("GAME")
         except Exception as e:
             print("[单人模式启动失败]", e)
@@ -2953,7 +2953,7 @@ class App:
             if engine is None:
                 engine = GameEngine()
             else:
-                engine.reset("新的远征开始！")
+                engine.reset("又一次上路")
             self.grid = engine.grid
             self.last_st = None
             self.renderer.invalidate()

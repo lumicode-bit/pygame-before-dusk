@@ -71,7 +71,7 @@ def main():
     app.post.fade = 0.0
     check("启动进入主菜单", app.scene == "MENU")
 
-    # 菜单 -> 选角（点击"单人远征"）
+    # 菜单 -> 选角（点击"独自上路"）
     b = app.menu_buttons[0]
     app.scene_menu(click(app, b.rect.center), pygame.key.get_pressed(), b.rect.center)
     pump(app)
