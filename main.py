@@ -39,6 +39,10 @@ from game_core import GameEngine, HostServer, NetClient, Shared, TICK_DT
 from renderer import WorldRenderer
 
 SCREEN_W, SCREEN_H = 1280, 720
+
+# ---- 失败丧钟 ----
+BELL_LEN = 4.2                  # 演出总时长（钟声 4.3s 长尾，最后一响留 1s 余韵）
+BELL_RINGS = (1.15, 2.15, 3.15)  # 三响时刻
 WORLD_VW, WORLD_VH = 800, 450   # 世界先按低分辨率渲染，再整数感放大，像素更饱满
 FPS = 60
 
@@ -1859,7 +1863,7 @@ class App:
                     self.bell_t = 99.0          # 任意键跳过
                     break
             self._draw_bell(s)
-            if self.bell_t >= 3.5:
+            if self.bell_t >= BELL_LEN:
                 self.bell_t = None
                 self.goto("RESULT", 0.55)
             return
@@ -2148,12 +2152,13 @@ class App:
 
         纯屏幕空间绘制，不占世界坐标；背景是死亡那一刻的定格画面。
         """
-        t = min(3.5, float(self.bell_t or 0.0))
-        RINGS = (1.15, 1.95, 2.75)
-        n = sum(1 for r in RINGS if t >= r)
+        t = min(BELL_LEN, float(self.bell_t or 0.0))
+        n = sum(1 for r in BELL_RINGS if t >= r)
         while self.bell_ring_n < n:
             self.bell_ring_n += 1
-            audio.sfx("bell", 0.82)
+            # 钟声现在是 4.3 秒的深沉长尾，三响叠加容易糊/削波：
+            # 音量压到 0.68，并把间隔拉到 1 秒（原来 0.8 秒太挤）
+            audio.sfx("bell", 0.68)
             self.cam.add_trauma(0.55)
 
         # 暗场：越往后越黑
@@ -2226,7 +2231,7 @@ class App:
 
         # 摆动：每响一次晃一下，指数衰减
         swing = 0.0
-        for r in RINGS:
+        for r in BELL_RINGS:
             if t > r:
                 dt_ = t - r
                 swing += math.sin(dt_ * 8.0) * 7.0 * math.exp(-dt_ * 2.4)
@@ -2289,7 +2294,7 @@ class App:
                     bx_, by_ = nx_, ny_
 
         # 落灰：每响一次，从口沿往下飘
-        for i, r in enumerate(RINGS):
+        for i, r in enumerate(BELL_RINGS):
             if t <= r:
                 continue
             dt_ = t - r
@@ -2304,7 +2309,7 @@ class App:
 
         # 每响一次的红色脉冲（短促一闪，叠在最上层）
         flash = 0
-        for r in RINGS:
+        for r in BELL_RINGS:
             if t > r:
                 d = t - r
                 if d < 0.42:
@@ -2317,7 +2322,7 @@ class App:
             s.blit(pulse, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
 
         # 四周暗角（压住情绪）
-        ui.dim(s, int(70 + 40 * (t / 3.5)), (4, 3, 6))
+        ui.dim(s, int(70 + 40 * (t / BELL_LEN)), (4, 3, 6))
 
     def _ai_catch_up(self):
         """把当前 AI 托管角色同步给引擎（引擎负责实际的"归队"兜底）。"""

@@ -1,12 +1,23 @@
 音效素材来源
 ========================================================
-bell.wav
+
+bell_source.wav（原始单响，未加工）
   原始文件: Cloche de l'Eglise de Sainte-Marie-des-Batignolles.ogg
   来源    : Wikimedia Commons
             https://commons.wikimedia.org/wiki/File:Cloche_de_l%27Eglise_de_Sainte-Marie-des-Batignolles.ogg
   作者    : milo
   许可    : CC0 1.0（公有领域贡献，可商用、免署名）
-  处理    : 取其中单次钟响，截取 2.9 秒，尾部 0.55s 淡出，归一化到 -0.7dBFS
-  用途    : 失败结算「丧钟」音效
+  处理    : 从 95 秒敲钟序列中检出单次钟响，截取 2.9 秒，尾部 0.55s 淡出，归一化
+
+bell.wav（游戏实际使用，由 bell_source.wav 加工而来）
+  加工脚本: tools/build_bell.py（可复现，改参数重跑即可）
+  加工步骤:
+    1. 降调 -5.5 半音（重采样 0.72x，时长同步拉长）
+    2. 保留原始未降调的 90ms 起音瞬态（敲击那一下要亮，否则像录音被放慢）
+    3. 叠加 62 / 93 / 124 Hz 次低频层（给"体量"）
+    4. 190Hz 低频搁架 +45%；3kHz 以上低通（去掉清脆的"叮"）
+    5. 卷积混响尾 2.2 秒（源素材只有 2.9 秒，大钟需要更长余韵）
+    6. 总长裁到 4.3 秒，尾部 0.7s 淡出，归一化到 0.92
+  用途    : 失败结算「丧钟」
 
 其余音效全部由 audio.py 程序化合成，无外部素材。
