@@ -26,3 +26,14 @@ shots/
 smoketest.png
 smoketest.txt
 ngrok_bin/
+
+# 内部工作笔记（AI 助手的记忆与设计讨论，不对外）
+.workbuddy/
+.workbuddy-ai/
+
+# 本地虚拟环境
+.venv/
+
+# 素材处理中间产物
+assets/sfx/*.bak
+*.bak

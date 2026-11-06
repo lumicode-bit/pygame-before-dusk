@@ -7,7 +7,7 @@ echo   暮色之前 · Before Dusk - 打包（目录模式）
 echo ============================================================
 echo.
 
-set "PY=C:/Users/clm/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+set "PY=%~dp0.venv\Scripts\python.exe"
 if exist "%PY%" goto havepy
 where python >nul 2>nul
 if errorlevel 1 (

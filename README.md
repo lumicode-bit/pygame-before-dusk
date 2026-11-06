@@ -3,8 +3,8 @@
 一款 2D 横版动作闯关游戏：**弓箭手 × 盾卫**双角色协作，横穿暮色森林、岩浆裂隙与熔炉长廊，
 在终点祭坛点燃传送门。全部美术与音频都在运行时程序化生成 —— 没有任何外部素材文件。
 
-![主菜单](shots/01_menu.png)
-![游戏画面](shots/06_forge.png)
+![主菜单](docs/screenshots/menu.png)
+![游戏画面](docs/screenshots/forge.png)
 
 ---
 
