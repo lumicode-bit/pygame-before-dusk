@@ -37,3 +37,8 @@ ngrok_bin/
 # 素材处理中间产物
 assets/sfx/*.bak
 *.bak
+
+# 一次性调试脚本与内部草稿（保留在本地，不入库）
+tools/archive/
+PLAN_single_mode.md
+demo_cloudsea.py
