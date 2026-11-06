@@ -42,3 +42,6 @@ assets/sfx/*.bak
 tools/archive/
 PLAN_single_mode.md
 demo_cloudsea.py
+
+# 旧版瓦片素材（已改为全程序化绘制，源码不再引用；保留在本地备查）
+res/
